@@ -1,6 +1,10 @@
 # SD-DEVSECOPS: Advanced Pentesting Checkers Suite
 
-A collection of high-performance, automated security tools designed for rapid enumeration, vulnerability discovery, and exploitation. Built by security professionals for the **OSCP** and beyond.
+![Python Version](https://img.shields.io/badge/python-3.x-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Category](https://img.shields.io/badge/category-Pentesting-red.svg)
+
+A collection of high-performance, automated security tools designed for rapid enumeration, vulnerability discovery, and exploitation. Built for professionals and security researchers.
 
 ---
 
@@ -12,11 +16,11 @@ The ultimate framework for Local File Inclusion discovery and exploitation.
 - **Main Script**: `lfiller.py`
 - **[Quick Usage Guide Pin](#-lfi-filler-v31-quick-usage)**
 
-### 2. SQLI-FILLER (v1.0 - OSCP Edition)
+### 2. SD-QLi (v1.1)
 High-speed SQL injection scanner and automated exfiltration tool.
 - **Key Features**: Error/Time/Boolean-blind detection, UNION column discovery, Auto-Data Dump, WAF Tamper scripts.
-- **Main Script**: `sqlifiller.py`
-- **[Quick Usage Guide Pin](#-sqli-filler-v10-quick-usage)**
+- **Main Script**: `sd-qli.py`
+- **[Quick Usage Guide Pin](#-sd-qli-v10-quick-usage)**
 
 ---
 
@@ -34,23 +38,23 @@ python3 lfiller.py -u "http://target.com/view.php" -lh YOUR_IP -lp 4444
 
 ---
 
-## 🚀 SD-QLi v1.0 Quick Usage
+## 🚀 SD-QLi v1.1 Quick Usage
 
 Fast scan and automated data exfiltration:
 ```bash
-python3 SD-QLi.py -u "http://target.com/products.php?id=1"
+python3 sd-qli.py -u "http://target.com/products.php?id=1"
 ```
 
 POST-based injection test:
 ```bash
-python3 SD-QLi.py -u "http://target.com/login.php" -m POST -d "user=admin&pass=123"
+python3 sd-qli.py -u "http://target.com/login.php" -m POST -d "user=admin&pass=123"
 ```
 
 ---
 
 ## 🧪 Advanced Features Comparison
 
-| Feature | LFI-FILLER | SQLI-FILLER |
+| Feature | LFI-FILLER | SD-QLi |
 |---------|------------|-------------|
 | **Multi-threading** | ✅ | ✅ |
 | **WAF Bypass** | ✅ (Encoding) | ✅ (Tamper) |
