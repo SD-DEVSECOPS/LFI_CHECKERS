@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 SD-QLi v1.1: ADVANCED AUTOMATED SQLi SCANNER
 High-speed SQL injection scanner and automated exploitation framework.
