@@ -1,6 +1,7 @@
 """
+SD-QLi v1.1: ADVANCED AUTOMATED SQLi SCANNER
 High-speed SQL injection scanner and automated exploitation framework.
-Tailored for rapid enumeration and quick wins during the OSCP exam.
+Designed for rapid enumeration and professional vulnerability discovery.
 """
 
 import requests
@@ -75,7 +76,7 @@ class SDQLi:
     ╚════██║██║  ██║ ╚════╝██║▄▄ ██║██║     ██║
     ███████║██████╔╝       ╚██████╔╝███████╗██║
     ╚══════╝╚═════╝         ╚══▀▀═╝ ╚══════╝╚═╝
-    {Colors.END}                 {Colors.BOLD}v1.0 - SD-QLi (OSCP Edition){Colors.END}
+    {Colors.END}                 {Colors.BOLD}v1.1 - SD-QLi (Advanced Edition){Colors.END}
         """
         print(banner)
 
@@ -397,7 +398,7 @@ class SDQLi:
         print("="*70)
 
 def main():
-    parser = argparse.ArgumentParser(description='SD-QLi v1.0 - OSCP Edition')
+    parser = argparse.ArgumentParser(description='SD-QLi v1.1 - Advanced SQLi Tool')
     parser.add_argument('-u', '--url', required=True, help='Target URL')
     parser.add_argument('-m', '--method', default='GET', choices=['GET', 'POST'], help='HTTP Method')
     parser.add_argument('-d', '--data', help='POST data (e.g. "id=1&user=admin")')
