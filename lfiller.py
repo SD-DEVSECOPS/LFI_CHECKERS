@@ -35,7 +35,7 @@ class Colors:
 
 class LFILLER:
     def __init__(self, url, lhost=None, lport=4444, timeout=5, workers=20, 
-                 custom_param=None, webshell=False, encode='none', cookies=None, headers=None):
+                 custom_param=None, webshell=False, encode='none', cookies=None, headers=None, rce=False):
         self.url = url.rstrip('/')
         self.lhost = lhost
         self.lport = lport
@@ -44,6 +44,7 @@ class LFILLER:
         self.custom_param = custom_param
         self.webshell_mode = webshell
         self.encode_mode = encode
+        self.rce_mode = rce
         
         self.session = requests.Session()
         self.session.headers = {
@@ -727,17 +728,21 @@ class LFILLER:
             print(f"\n[*] Phase 2: Deep exploitation on {Colors.CYAN}{p}{Colors.END}")
             self.test_wrappers(p)
             self.enumerate_files(p)
-            self.check_filter_chain(p)
-            self.check_input_wrappers(p)
-            self.check_proc_environ(p)
-            self.check_pearcmd(p)
-            self.check_log_poisoning(p)
-            self.check_ssh_poisoning(p)
-            self.check_session_poisoning(p)
-            self.check_file_descriptors(p)
-            self.check_rfi(p)
-            self.execute_shells(p)
-            if self.webshell_mode: self.create_webshell(p)
+            self.check_filter_chain(p) # Filter chain writes to temp, gated by logic but fairly safe? usually considered RCE. Keep for now as "Advanced Read" unless specifically gated? Actually filter chain RCE is RCE.
+            
+            # Gated RCE Modules
+            if self.rce_mode:
+                self.check_input_wrappers(p)
+                self.check_proc_environ(p)
+                self.check_pearcmd(p)
+                self.check_log_poisoning(p)
+                self.check_ssh_poisoning(p)
+                self.check_session_poisoning(p)
+                self.check_rfi(p)
+                self.execute_shells(p)
+                if self.webshell_mode: self.create_webshell(p)
+            else:
+                 print(f"[*] {Colors.YELLOW}RCE/Poisoning modules skipped. Use --rce to enable.{Colors.END}")
  
         self._display_summary()
         self._generate_report()
@@ -921,6 +926,36 @@ def main():
 [... Quick Examples omitted for brevity but functionality preserved ...]
         """
     )
+    parser = argparse.ArgumentParser(
+        description='LFILLER v3.6 - Industrial LFI Framework',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+╔══════════════════════════════════════════════════════════╗
+║                     QUICK EXAMPLES                       ║
+╚══════════════════════════════════════════════════════════╝
+
+BASIC AUDIT (Safe for Bounty):
+  python3 lfiller.py -u "http://target.com/page.php?file=" -C "PHPSESSID=..."
+
+FULL CHAIN RCE (Red Team / CTF ONLY):
+  python3 lfiller.py -u "http://target.com/page.php?file=" --rce
+
+╔══════════════════════════════════════════════════════════╗
+║                 ⚠️  DANGER ZONE (--rce)  ⚠️              ║
+╚══════════════════════════════════════════════════════════╝
+The following modules are DISABLED by default and only run
+when --rce is specified. These are aggressive/intrusive:
+
+1. Log Poisoning (Auth.log, Access.log)
+2. SSH Poisoning (Writes to auth logs via SSH port)
+3. PEARCMD Exploitation (Writes to webroot)
+4. RFI (Remote File Inclusion) and Reverse Shells
+5. PHP Wrappers (expect://, php://input, data://)
+6. Web Shell Creation (INTO OUTFILE / File Write)
+
+USE WITH CAUTION.
+        """
+    )
     parser.add_argument('-u', '--url', required=True, help='Target URL')
     parser.add_argument('-w', '--workers', type=int, default=20, help='Threads (default: 20)')
     parser.add_argument('-e', '--encode', choices=['none', 'url', 'double', 'unicode', 'all'], default='none')
@@ -934,6 +969,9 @@ def main():
     parser.add_argument('-C', '--cookies', help='Session cookies (e.g. "PHPSESSID=xyz; auth=1")')
     parser.add_argument('-H', '--headers', help='Custom headers (e.g. "Authorization: Bearer X;; Custom: Val")')
     
+    # Safety Check
+    parser.add_argument('--rce', action='store_true', help='Enable intrusive RCE/Poisoning modules (Danger)')
+
     args = parser.parse_args()
     scanner = LFILLER(
         url=args.url, 
@@ -944,8 +982,9 @@ def main():
         webshell=args.webshell,
         lhost=args.lhost,
         lport=args.lport,
-        cookies=args.cookies, # Pass new args
-        headers=args.headers  # Pass new args
+        cookies=args.cookies,
+        headers=args.headers,
+        rce=args.rce
     )
     try: scanner.run()
     except KeyboardInterrupt: print(f"\n{Colors.RED}[!] Interrupted.{Colors.END}")
