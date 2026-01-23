@@ -730,7 +730,7 @@ class LFILLER:
             self.enumerate_files(p)
             self.check_filter_chain(p) # Filter chain writes to temp, gated by logic but fairly safe? usually considered RCE. Keep for now as "Advanced Read" unless specifically gated? Actually filter chain RCE is RCE.
             
-            # Gated RCE Modules
+            # Gated RCE Modules (Poisoning, RFI, Wrappers)
             if self.rce_mode:
                 self.check_input_wrappers(p)
                 self.check_proc_environ(p)
@@ -740,9 +740,13 @@ class LFILLER:
                 self.check_session_poisoning(p)
                 self.check_rfi(p)
                 self.execute_shells(p)
-                if self.webshell_mode: self.create_webshell(p)
-            else:
-                 print(f"[*] {Colors.YELLOW}RCE/Poisoning modules skipped. Use --rce to enable.{Colors.END}")
+            
+            # Web Shell Creation (Triggered by --webshell flag primarily, or implicit in RCE)
+            if self.webshell_mode or self.rce_mode: 
+                self.create_webshell(p)
+            
+            if not self.rce_mode and not self.webshell_mode:
+                 print(f"[*] {Colors.YELLOW}RCE/Poisoning/Webshell modules skipped. Use --rce or --webshell to enable.{Colors.END}")
  
         self._display_summary()
         self._generate_report()
