@@ -46,25 +46,7 @@ def main():
     
     parser = argparse.ArgumentParser(
         description="OT-10 Master Runner: Orchestrating Industrial Exploitation",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=f"""
-{Colors.BOLD}🔥 INDUSTRIAL EXPLOITATION EXAMPLES:{Colors.END}
-  [1] {Colors.CYAN}Standard Audit{Colors.END}: python owasp_checker.py -u http://target.com -All -e all
-  [2] {Colors.CYAN}Authenticated SQLi{Colors.END}: python owasp_checker.py -u http://target.com -sqli --cookie "session=123"
-  [3] {Colors.CYAN}LFI to RCE Chain{Colors.END}: python owasp_checker.py -u http://target.com -lfi -lh <KALI_IP> -w
-  [4] {Colors.CYAN}Direct Metadata SSRF{Colors.END}: python owasp_checker.py -u http://target.com -ssrf -ex callback.com
-
-{Colors.BOLD}🚀 MODULE OVERVIEW:{Colors.END}
-  - {Colors.BOLD}SD-QLi{Colors.END} (-sqli)     : Professional SQL Injection engine.
-  - {Colors.BOLD}LFiller{Colors.END} (-lfi)     : Advanced LFI engine with Log/SSH poisoning and WebShells.
-  - {Colors.BOLD}SSRFPro{Colors.END} (-ssrf)     : Cloud Metadata and internal network recon engine.
-  - {Colors.BOLD}RCE-Fuzzer{Colors.END} (-rce)  : SSTI and unrestricted file upload engine.
-  - {Colors.BOLD}InfoHunter{Colors.END} (-misconfig): Information disclosure and misconfig engine.
-
-{Colors.BOLD}🛡️ SAFETY & INDUSTRIAL COMPLIANCE:{Colors.END}
-  All modules are {Colors.GREEN}READ-ONLY{Colors.END} and designed for Bug Bounty hunter safety. 
-  Consolidated reports are auto-generated in the target's domain folder.
-        """
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
     # Define Argument Groups for Professional UI
@@ -77,7 +59,7 @@ def main():
     # 1. Industrial Targeting
     target_group.add_argument("-u", "--url", help="Target URL (e.g., http://target.com/file.php)")
     target_group.add_argument("-r", "--request", help="Industrial Request File (Burp/Raw HTTP)")
-    target_group.add_argument("-p", "--param", action="append", help="Target unique parameter (can be used multiple times)")
+    target_group.add_argument("-p", "--param", action="append", help="Target unique parameter")
     target_group.add_argument("-e", "--encode", choices=['none', 'url', 'double', 'unicode', 'all'], default='none', help="Global Evasion Encoding")
 
     # 2. Global Authentication
@@ -108,50 +90,43 @@ def main():
         sys.exit(1)
 
     url = args.url
-    extra_args = args.extra.split() if args.extra else []
+    extra_args = []
     
-    if args.request:
-        extra_args += ["-r", args.request]
-    
-    if args.encode != 'none':
-        extra_args += ["-e", args.encode]
-    
-    if args.cookie:
-        extra_args += ["--cookie", args.cookie]
-        
+    # Collect all flags to pass down
+    if args.request: extra_args += ["-r", args.request]
+    if args.encode != 'none': extra_args += ["-e", args.encode]
+    if args.cookie: extra_args += ["--cookie", args.cookie]
     if args.header:
-        for head in args.header:
-            extra_args += ["--header", head]
-
+        for head in args.header: extra_args += ["--header", head]
     if args.lhost:
         extra_args += ["--lhost", args.lhost]
         extra_args += ["--lport", str(args.lport)]
-
-    if args.webshell:
-        extra_args += ["-w"]
-        
+    if args.webshell: extra_args += ["-w"]
     if args.param:
-        for p in args.param:
-            extra_args += ["-p", p]
+        for p in args.param: extra_args += ["-p", p]
+    if args.extra:
+        # Split extra arguments and append
+        extra_args += args.extra.split()
 
     # Module Execution Logic
+    target_args = ["-u", url] if url else []
+    
     if args.sqli or args.All:
-        run_module("sd-qli.py", ["-u", url] if url else [] + extra_args)
+        run_module("sd-qli.py", target_args + extra_args)
 
     if args.lfi or args.All:
-        run_module("lfiller.py", ["-u", url] if url else [] + extra_args)
+        run_module("lfiller.py", target_args + extra_args)
 
     if args.ssrf or args.All:
-        ssrf_args = (["-u", url] if url else []) + extra_args
-        if args.external:
-            ssrf_args += ["-ex", args.external]
+        ssrf_args = target_args + extra_args
+        if args.external: ssrf_args += ["-ex", args.external]
         run_module("ssrf_pro.py", ssrf_args)
 
     if args.misconfig or args.All:
-        run_module("infohunter.py", ["-u", url] if url else [] + extra_args)
+        run_module("infohunter.py", target_args + extra_args)
 
     if args.rce or args.All:
-        run_module("rce_fuzzer.py", ["-u", url] if url else [] + extra_args)
+        run_module("rce_fuzzer.py", target_args + extra_args)
 
     display_summary(url or "request_file")
 
@@ -168,7 +143,9 @@ def display_summary(target_url):
         return
 
     try:
-        domain = target_url.split('//')[-1].split('/')[0].replace(':', '_')
+        # Robust domain extraction
+        clean_url = target_url.replace('http://', '').replace('https://', '')
+        domain = clean_url.split('/')[0].replace(':', '_')
         if not os.path.exists(domain):
             os.makedirs(domain)
     except:
@@ -194,17 +171,12 @@ def display_summary(target_url):
             rf.write(f"Type:   {finding['type']}\n")
             rf.write(f"Module: {finding['module']}\n")
             rf.write(f"Target: {finding['url']}\n")
-            
-            if finding.get('vector'):
-                rf.write(f"Vector: {finding['vector']}\n")
-            
-            if finding.get('description'):
-                rf.write(f"\nDESCRIPTION:\n{finding['description']}\n")
-            
+            if finding.get('vector'): rf.write(f"Vector: {finding['vector']}\n")
+            if finding.get('description'): rf.write(f"\nDESCRIPTION:\n{finding['description']}\n")
             rf.write("\nMANUAL REPRODUCTION STEPS:\n")
             rf.write("-" * 25 + "\n")
             rf.write(f"1. Proof of Concept Command:\n   {finding['proof']}\n")
-            rf.write(f"2. Observe the results (check response body or headers for indicators).\n")
+            rf.write(f"2. Observe the results.\n")
             rf.write("\nCreated by OT10-Scanner Industrial Suite\n")
 
     print(f"\n[*] {Colors.GREEN}All findings saved to directory{Colors.END}: {domain}/")

@@ -133,6 +133,7 @@ def main():
     parser.add_argument("-u", "--url", help="Target URL")
     parser.add_argument("-r", "--request", help="Raw request file (Burp-style)")
     parser.add_argument("-p", "--param", help="Target parameter")
+    parser.add_argument("-e", "--encode", choices=['none', 'url', 'double', 'unicode', 'all'], default='none', help="Global Evasion Encoding")
     parser.add_argument("--cookie", help="Custom cookie")
     parser.add_argument("--header", action='append', help="Custom headers")
     parser.add_argument("-ex", "--external", help="External callback server (e.g. your.burpcollaborator.net)")

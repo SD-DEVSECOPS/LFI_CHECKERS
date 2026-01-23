@@ -878,6 +878,8 @@ def main():
     parser.add_argument('-r', '--request', help='Raw request file (Burp-style)')
     parser.add_argument('-w', '--workers', type=int, default=10, help='Number of threads')
     parser.add_argument('-t', '--timeout', type=int, default=3, help='Request timeout')
+    parser.add_argument('--header', action='append', help='Custom headers')
+    parser.add_argument('-e', '--encode', choices=['none', 'url', 'double', 'unicode', 'all'], default='none', help='Evasion encoding')
     
     # Enumeration Flags (v2.3)
     parser.add_argument('--dbs', action='store_true', help='Enumerate databases')

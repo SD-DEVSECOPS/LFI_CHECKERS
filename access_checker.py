@@ -10,6 +10,8 @@ Description:
   and checking for leaked private data or cross-user access.
 """
 import sys
+import argparse
+import requests
 from evasion_utils import EvasionEngine, ResultsLogger
 
 class Colors:
@@ -76,15 +78,26 @@ class AccessChecker:
         return False
 
 def main():
-    parser = argparse.ArgumentParser(description="AccessChecker v1.0")
-    parser.add_argument("-u", "--url", required=True)
-    parser.add_argument("-p", "--param", required=True)
-    parser.add_argument("-v", "--value", required=True)
+    parser = argparse.ArgumentParser(description="AccessChecker v1.0 - Industrial IDOR Scanner")
+    parser.add_argument("-u", "--url", help="Target URL")
+    parser.add_argument("-r", "--request", help="Raw request file (Burp-style)")
+    parser.add_argument("-p", "--param", help="Target parameter for IDOR")
+    parser.add_argument("-v", "--value", help="Initial value for manipulation")
+    parser.add_argument("-e", "--encode", choices=['none', 'url', 'double', 'unicode', 'all'], default='none', help="Global Evasion Encoding")
     parser.add_argument("--cookie", help="Custom cookie")
     parser.add_argument("--header", action='append', help="Custom headers")
     
     args = parser.parse_args()
-    checker = AccessChecker(args.url, cookie=args.cookie, headers=args.header)
+    url = args.url
+    if args.request:
+        req = EvasionEngine.parse_request_file(args.request)
+        if req: url = req['url']
+        
+    if not url:
+        parser.print_help()
+        sys.exit(1)
+
+    checker = AccessChecker(url, cookie=args.cookie, headers=args.header)
     checker.test_idor(args.param, args.value)
 
 if __name__ == "__main__":

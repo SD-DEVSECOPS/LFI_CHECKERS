@@ -440,6 +440,7 @@ def main():
     parser.add_argument('-lh', '--lhost', help='Local host for shells')
     parser.add_argument('-lp', '--lport', type=int, default=4444)
     parser.add_argument('-t', '--timeout', type=int, default=5)
+    parser.add_argument('--header', action='append', help='Custom headers')
     parser.add_argument('-webshell', '--webshell', action='store_true')
     
     args = parser.parse_args()
