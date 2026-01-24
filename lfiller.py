@@ -620,8 +620,16 @@ class LFILLER:
         test_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}={chain}"
         try:
             r = self.session.get(test_url, timeout=5)
-            # If we don't get a 500 and the response length is reasonable, it might be vulnerable
+            # Deep Validation: Check for 200 OK + Absence of Error Pages
+            # Filter chains usually result in a blank page or specific output, not a "Welcome" or "Error" page
             if r.status_code == 200:
+                content = r.text.lower()
+                if any(e in content for e in ['error', 'warning', 'not found', 'failed to open', '404', 'forbidden']):
+                    return # Likely a custom error page returning 200
+
+                # If the response is HUGE (normal page) it's likely just ignored the filter
+                if len(r.text) > 2000: return 
+
                 with self.lock:
                     self.results['filter_chain'] = True
                     print(f" {Colors.GREEN}[+]{Colors.END} PHP Filter Chain RCE likely possible!")
